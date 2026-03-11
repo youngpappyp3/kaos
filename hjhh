@@ -1,5 +1,3 @@
--- Arrayfield Hub - Tap + Hatch + Rebirth + Equip + Anti-AFK (Mobile Ready)
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local VirtualUser = game:GetService("VirtualUser")
@@ -24,7 +22,7 @@ local autoRebirth = false
 local autoEquip = false
 local selectedEgg = "Basic"
 local hatchAmount = 1
-local rebirthAmount = 1   -- changeable
+local rebirthAmount = 1
 
 -- ==================== MAIN TAB ====================
 MainTab:CreateSection("Auto Farming")
@@ -32,20 +30,26 @@ MainTab:CreateSection("Auto Farming")
 MainTab:CreateToggle({
     Name = "Auto Tap (0.1s)",
     CurrentValue = false,
-    Callback = function(v) autoTap = v end,
+    Callback = function(v)
+        autoTap = v
+    end,
 })
 
 MainTab:CreateToggle({
     Name = "Auto Hatch",
     CurrentValue = false,
-    Callback = function(v) autoHatch = v end,
+    Callback = function(v)
+        autoHatch = v
+    end,
 })
 
 MainTab:CreateDropdown({
     Name = "Select Egg",
     Options = {"Basic", "Beach", "Hype", "Ice", "Lava", "Mountain", "Mushroom", "Question", "Release", "Sakura"},
     CurrentOption = {"Basic"},
-    Callback = function(opt) selectedEgg = opt[1] end,
+    Callback = function(opt)
+        selectedEgg = opt[1]
+    end,
 })
 
 MainTab:CreateSlider({
@@ -53,27 +57,38 @@ MainTab:CreateSlider({
     Range = {1, 20},
     Increment = 1,
     CurrentValue = 1,
-    Callback = function(v) hatchAmount = v end,
+    Callback = function(v)
+        hatchAmount = v
+    end,
 })
 
 MainTab:CreateToggle({
     Name = "Auto Rebirth",
     CurrentValue = false,
-    Callback = function(v) autoRebirth = v end,
+    Callback = function(v)
+        autoRebirth = v
+    end,
 })
 
-MainTab:CreateSlider({
-    Name = "Rebirth Amount (how many times)",
-    Range = {1, 10},
-    Increment = 1,
-    CurrentValue = 1,
-    Callback = function(v) rebirthAmount = v end,
+-- INPUT BOX INSTEAD OF SLIDER
+MainTab:CreateInput({
+    Name = "Rebirth Amount",
+    PlaceholderText = "Enter number",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(text)
+        local num = tonumber(text)
+        if num then
+            rebirthAmount = num
+        end
+    end,
 })
 
 MainTab:CreateToggle({
     Name = "Auto Equip Best Pets",
     CurrentValue = false,
-    Callback = function(v) autoEquip = v end,
+    Callback = function(v)
+        autoEquip = v
+    end,
 })
 
 -- ==================== SETTINGS TAB ====================
@@ -102,54 +117,94 @@ task.spawn(function()
         if autoTap then
             local args = {}
             pcall(function()
-                ReplicatedStorage:WaitForChild("Packages", 9e9):WaitForChild("_Index", 9e9):WaitForChild("sleitnick_knit@1.7.0", 9e9):WaitForChild("knit", 9e9):WaitForChild("Services", 9e9):WaitForChild("TapsService", 9e9):WaitForChild("RE", 9e9):WaitForChild("Taps", 9e9):FireServer(unpack(args))
+                ReplicatedStorage:WaitForChild("Packages", 9e9)
+                :WaitForChild("_Index", 9e9)
+                :WaitForChild("sleitnick_knit@1.7.0", 9e9)
+                :WaitForChild("knit", 9e9)
+                :WaitForChild("Services", 9e9)
+                :WaitForChild("TapsService", 9e9)
+                :WaitForChild("RE", 9e9)
+                :WaitForChild("Taps", 9e9)
+                :FireServer(unpack(args))
             end)
         end
         task.wait(0.1)
     end
 end)
 
--- Auto Hatch (your exact method)
+-- Auto Hatch
 task.spawn(function()
     while true do
         if autoHatch then
             print("🥚 HATCH → " .. selectedEgg .. " x" .. hatchAmount)
-            local args = { [1] = selectedEgg, [2] = hatchAmount }
+
+            local args = {
+                [1] = selectedEgg,
+                [2] = hatchAmount
+            }
+
             pcall(function()
-                ReplicatedStorage:WaitForChild("Packages", 9e9):WaitForChild("_Index", 9e9):WaitForChild("sleitnick_knit@1.7.0", 9e9):WaitForChild("knit", 9e9):WaitForChild("Services", 9e9):WaitForChild("EggsService", 9e9):WaitForChild("RE", 9e9):WaitForChild("HatchEggs", 9e9):FireServer(unpack(args))
+                ReplicatedStorage:WaitForChild("Packages", 9e9)
+                :WaitForChild("_Index", 9e9)
+                :WaitForChild("sleitnick_knit@1.7.0", 9e9)
+                :WaitForChild("knit", 9e9)
+                :WaitForChild("Services", 9e9)
+                :WaitForChild("EggsService", 9e9)
+                :WaitForChild("RE", 9e9)
+                :WaitForChild("HatchEggs", 9e9)
+                :FireServer(unpack(args))
             end)
         end
         task.wait(1.8)
     end
 end)
 
--- Auto Rebirth (your exact method + changeable number)
+-- Auto Rebirth
 task.spawn(function()
     while true do
         if autoRebirth then
             print("♻️ REBIRTH → " .. rebirthAmount .. " times")
-            local args = { [1] = rebirthAmount }
+
+            local args = {
+                [1] = rebirthAmount
+            }
+
             pcall(function()
-                ReplicatedStorage:WaitForChild("Packages", 9e9):WaitForChild("_Index", 9e9):WaitForChild("sleitnick_knit@1.7.0", 9e9):WaitForChild("knit", 9e9):WaitForChild("Services", 9e9):WaitForChild("RebirthsService", 9e9):WaitForChild("RE", 9e9):WaitForChild("Rebirth", 9e9):FireServer(unpack(args))
+                ReplicatedStorage:WaitForChild("Packages", 9e9)
+                :WaitForChild("_Index", 9e9)
+                :WaitForChild("sleitnick_knit@1.7.0", 9e9)
+                :WaitForChild("knit", 9e9)
+                :WaitForChild("Services", 9e9)
+                :WaitForChild("RebirthsService", 9e9)
+                :WaitForChild("RE", 9e9)
+                :WaitForChild("Rebirth", 9e9)
+                :FireServer(unpack(args))
             end)
         end
-        task.wait(5) -- safe delay for rebirth
+        task.wait(5)
     end
 end)
 
--- Auto Equip Best (your exact method)
+-- Auto Equip Best
 task.spawn(function()
     while true do
         if autoEquip then
             print("🐾 EQUIP BEST")
+
             local args = {}
+
             pcall(function()
-                ReplicatedStorage:WaitForChild("Packages", 9e9):WaitForChild("_Index", 9e9):WaitForChild("sleitnick_knit@1.7.0", 9e9):WaitForChild("knit", 9e9):WaitForChild("Services", 9e9):WaitForChild("PetsService", 9e9):WaitForChild("RE", 9e9):WaitForChild("EquipBest", 9e9):FireServer(unpack(args))
+                ReplicatedStorage:WaitForChild("Packages", 9e9)
+                :WaitForChild("_Index", 9e9)
+                :WaitForChild("sleitnick_knit@1.7.0", 9e9)
+                :WaitForChild("knit", 9e9)
+                :WaitForChild("Services", 9e9)
+                :WaitForChild("PetsService", 9e9)
+                :WaitForChild("RE", 9e9)
+                :WaitForChild("EquipBest", 9e9)
+                :FireServer(unpack(args))
             end)
         end
         task.wait(6)
     end
 end)
-
-print("✅ Full Hub Loaded - Scroll down on mobile!")
-Rayfield:Notify("All Features Added", "Rebirth amount & Equip Best are now working", 6)
