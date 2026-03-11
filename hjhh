@@ -1,263 +1,74 @@
--- Arrayfield Hub - Fixed & Optimized
--- Separate loops, cached remotes, proper anti-AFK, error handling
+-- Arrayfield Hub - Tap + Hatch + Anti-AFK (Minimal & Clean)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local VirtualUser = game:GetService("VirtualUser")
 local LocalPlayer = Players.LocalPlayer
 
--- Load Rayfield
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
 
 local Window = Rayfield:CreateWindow({
     Name = "Arrayfield Hub",
-    LoadingTitle = "Arrayfield Suite",
+    LoadingTitle = "Tap + Hatch",
     LoadingSubtitle = "by Arrays",
-    ConfigurationSaving = {
-        Enabled = true,
-        FolderName = nil,
-        FileName = "ArrayfieldHub"
-    },
     KeySystem = false,
 })
 
--- ==================== CACHE REMOTES ONCE ====================
-local TapsRemote, RebirthRemote, HatchRemote, EquipRemote
+-- Tabs
+local MainTab = Window:CreateTab("Main", 4483362458)
+local SettingsTab = Window:CreateTab("Settings")
 
-local function cacheRemotes()
-    local success, err = pcall(function()
-        local KnitServices = ReplicatedStorage
-            :FindFirstChild("Packages")
-            and ReplicatedStorage.Packages
-            :FindFirstChild("_Index")
-            and ReplicatedStorage.Packages._Index
-            :FindFirstChild("sleitnick_knit@1.7.0")
-            and ReplicatedStorage.Packages._Index["sleitnick_knit@1.7.0"]
-            :FindFirstChild("knit")
-            and ReplicatedStorage.Packages._Index["sleitnick_knit@1.7.0"].knit
-            :FindFirstChild("Services")
-
-        if not KnitServices then
-            KnitServices = ReplicatedStorage.Packages._Index["sleitnick_knit@1.7.0"].knit.Services
-        else
-            KnitServices = ReplicatedStorage.Packages._Index["sleitnick_knit@1.7.0"].knit.Services
-        end
-
-        -- Tap
-        if KnitServices:FindFirstChild("TapsService") then
-            TapsRemote = KnitServices.TapsService.RE.Taps
-        end
-
-        -- Rebirth
-        if KnitServices:FindFirstChild("RebirthsService") then
-            RebirthRemote = KnitServices.RebirthsService.RE.Rebirth
-        end
-
-        -- Hatch
-        if KnitServices:FindFirstChild("EggsService") then
-            HatchRemote = KnitServices.EggsService.RE.HatchEggs
-        end
-
-        -- Equip Best
-        if KnitServices:FindFirstChild("PetsService") then
-            EquipRemote = KnitServices.PetsService.RE.EquipBest
-        end
-    end)
-
-    if not success then
-        warn("[Arrayfield Hub] Failed to cache remotes: " .. tostring(err))
-        return false
-    end
-    return true
-end
-
--- Try caching remotes with retry
-task.spawn(function()
-    for attempt = 1, 10 do
-        if cacheRemotes() then
-            local found = {}
-            if TapsRemote then table.insert(found, "Taps") end
-            if RebirthRemote then table.insert(found, "Rebirth") end
-            if HatchRemote then table.insert(found, "Hatch") end
-            if EquipRemote then table.insert(found, "Equip") end
-
-            print("[Arrayfield Hub] Remotes cached: " .. table.concat(found, ", "))
-            Rayfield:Notify({
-                Title = "Remotes Found",
-                Content = "Loaded: " .. table.concat(found, ", "),
-                Duration = 4,
-            })
-            return
-        end
-        warn("[Arrayfield Hub] Remote cache attempt " .. attempt .. "/10 failed, retrying...")
-        task.wait(2)
-    end
-    Rayfield:Notify({
-        Title = "Warning",
-        Content = "Some remotes not found. Features may not work.",
-        Duration = 6,
-    })
-end)
-
--- ==================== VARIABLES ====================
+-- Variables
 local autoTap = false
-local autoRebirth = false
 local autoHatch = false
-local autoEquip = false
 local selectedEgg = "Basic"
 local hatchAmount = 1
 local antiAFKEnabled = false
 local antiAFKConnection = nil
 
--- Speed settings
-local tapDelay = 0.1
-local rebirthDelay = 3
-local hatchDelay = 1.8
-local equipDelay = 4
-
--- ==================== TABS ====================
-local MainTab = Window:CreateTab("Main", 4483362458)
-local HatchTab = Window:CreateTab("Hatching", 4483362458)
-local SettingsTab = Window:CreateTab("Settings", 4483362458)
-
 -- ==================== MAIN TAB ====================
-MainTab:CreateSection("Auto Farm")
+MainTab:CreateSection("Auto Features")
 
 MainTab:CreateToggle({
-    Name = "Auto Tap",
+    Name = "Auto Tap (0.1s)",
     CurrentValue = false,
-    Flag = "AutoTapToggle",
     Callback = function(Value)
         autoTap = Value
-        Rayfield:Notify({
-            Title = "Auto Tap",
-            Content = Value and "Enabled" or "Disabled",
-            Duration = 3,
-        })
-    end,
-})
-
-MainTab:CreateSlider({
-    Name = "Tap Delay (seconds)",
-    Range = {0.05, 1},
-    Increment = 0.05,
-    Suffix = "s",
-    CurrentValue = 0.1,
-    Flag = "TapDelaySlider",
-    Callback = function(Value)
-        tapDelay = Value
+        Rayfield:Notify("Auto Tap", Value and "ON - Spamming every 0.1s" or "OFF", 3)
     end,
 })
 
 MainTab:CreateToggle({
-    Name = "Auto Rebirth",
-    CurrentValue = false,
-    Flag = "AutoRebirthToggle",
-    Callback = function(Value)
-        autoRebirth = Value
-        Rayfield:Notify({
-            Title = "Auto Rebirth",
-            Content = Value and "Enabled" or "Disabled",
-            Duration = 3,
-        })
-    end,
-})
-
-MainTab:CreateSlider({
-    Name = "Rebirth Delay (seconds)",
-    Range = {1, 10},
-    Increment = 0.5,
-    Suffix = "s",
-    CurrentValue = 3,
-    Flag = "RebirthDelaySlider",
-    Callback = function(Value)
-        rebirthDelay = Value
-    end,
-})
-
-MainTab:CreateToggle({
-    Name = "Auto Equip Best Pets",
-    CurrentValue = false,
-    Flag = "AutoEquipToggle",
-    Callback = function(Value)
-        autoEquip = Value
-        Rayfield:Notify({
-            Title = "Auto Equip Best",
-            Content = Value and "Enabled" or "Disabled",
-            Duration = 3,
-        })
-    end,
-})
-
-MainTab:CreateKeybind({
-    Name = "Toggle Auto Tap",
-    CurrentKeybind = "T",
-    HoldToInteract = false,
-    Flag = "TapKeybind",
-    Callback = function()
-        autoTap = not autoTap
-        Rayfield:Notify({
-            Title = "Auto Tap",
-            Content = autoTap and "Toggled ON" or "Toggled OFF",
-            Duration = 2,
-        })
-    end,
-})
-
--- ==================== HATCH TAB ====================
-HatchTab:CreateSection("Egg Hatching")
-
-HatchTab:CreateToggle({
     Name = "Auto Hatch",
     CurrentValue = false,
-    Flag = "AutoHatchToggle",
     Callback = function(Value)
         autoHatch = Value
-        Rayfield:Notify({
-            Title = "Auto Hatch",
-            Content = Value and "Enabled" or "Disabled",
-            Duration = 3,
-        })
+        Rayfield:Notify("Auto Hatch", Value and "ON" or "OFF", 3)
     end,
 })
 
-HatchTab:CreateDropdown({
+-- Egg Dropdown (REAL names from your game)
+MainTab:CreateDropdown({
     Name = "Select Egg",
-    Options = {"Basic", "Rare", "Epic", "Mythical", "Legendary", "Godly", "Premium"},
+    Options = {"Basic", "Beach", "Hype", "Ice", "Lava", "Mountain", "Mushroom", "Question", "Release", "Sakura"},
     CurrentOption = {"Basic"},
     MultipleOptions = false,
-    Flag = "EggDropdown",
     Callback = function(Option)
-        selectedEgg = Option[1] or Option
-        Rayfield:Notify({
-            Title = "Egg Selected",
-            Content = tostring(selectedEgg),
-            Duration = 2,
-        })
+        selectedEgg = Option[1]
+        print("Egg changed to: " .. selectedEgg)
+        Rayfield:Notify("Egg Selected", selectedEgg, 2)
     end,
 })
 
-HatchTab:CreateSlider({
+MainTab:CreateSlider({
     Name = "Hatch Amount",
     Range = {1, 50},
     Increment = 1,
     Suffix = " eggs",
     CurrentValue = 1,
-    Flag = "HatchAmountSlider",
     Callback = function(Value)
         hatchAmount = Value
-    end,
-})
-
-HatchTab:CreateSlider({
-    Name = "Hatch Delay (seconds)",
-    Range = {0.5, 5},
-    Increment = 0.1,
-    Suffix = "s",
-    CurrentValue = 1.8,
-    Flag = "HatchDelaySlider",
-    Callback = function(Value)
-        hatchDelay = Value
+        print("Hatch amount set to: " .. hatchAmount)
     end,
 })
 
@@ -265,141 +76,59 @@ HatchTab:CreateSlider({
 SettingsTab:CreateSection("Anti-AFK")
 
 SettingsTab:CreateToggle({
-    Name = "Anti-AFK",
+    Name = "Enable Anti-AFK",
     CurrentValue = false,
-    Flag = "AntiAFKToggle",
     Callback = function(Value)
         antiAFKEnabled = Value
         if Value then
-            -- Disconnect old connection if exists
-            if antiAFKConnection then
-                antiAFKConnection:Disconnect()
-                antiAFKConnection = nil
-            end
+            if antiAFKConnection then antiAFKConnection:Disconnect() end
             antiAFKConnection = LocalPlayer.Idled:Connect(function()
                 pcall(function()
-                    VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                    VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
                     task.wait(1)
-                    VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                    VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
                 end)
             end)
-            Rayfield:Notify({
-                Title = "Anti-AFK",
-                Content = "Enabled - No more idle kicks!",
-                Duration = 4,
-            })
+            Rayfield:Notify("Anti-AFK", "Enabled - You won't get kicked!", 4)
         else
             if antiAFKConnection then
                 antiAFKConnection:Disconnect()
                 antiAFKConnection = nil
             end
-            Rayfield:Notify({
-                Title = "Anti-AFK",
-                Content = "Disabled",
-                Duration = 3,
-            })
+            Rayfield:Notify("Anti-AFK", "Disabled", 3)
         end
     end,
 })
 
-SettingsTab:CreateSection("Info")
+-- ==================== LOOPS ====================
 
-SettingsTab:CreateParagraph({
-    Title = "Arrayfield Hub",
-    Content = "Made by Arrays\n\nFeatures:\n- Auto Tap with adjustable speed\n- Auto Rebirth\n- Auto Hatch with egg selection\n- Auto Equip Best Pets\n- Anti-AFK\n\nAll delays are adjustable via sliders."
-})
-
-SettingsTab:CreateButton({
-    Name = "Force Recache Remotes",
-    Callback = function()
-        TapsRemote = nil
-        RebirthRemote = nil
-        HatchRemote = nil
-        EquipRemote = nil
-        task.spawn(function()
-            if cacheRemotes() then
-                Rayfield:Notify({
-                    Title = "Remotes",
-                    Content = "Successfully recached!",
-                    Duration = 3,
-                })
-            else
-                Rayfield:Notify({
-                    Title = "Remotes",
-                    Content = "Failed to recache. Check console.",
-                    Duration = 4,
-                })
-            end
-        end)
-    end,
-})
-
--- ==================== SEPARATE LOOPS (THE FIX) ====================
-
--- Auto Tap Loop
+-- Auto Tap (your working 0.1s loop)
 task.spawn(function()
     while true do
-        if autoTap and TapsRemote then
-            local success, err = pcall(function()
-                TapsRemote:FireServer()
+        if autoTap then
+            print("🔨 FIRING TAP...")
+            local args = {}
+            pcall(function()
+                ReplicatedStorage:WaitForChild("Packages", 9e9):WaitForChild("_Index", 9e9):WaitForChild("sleitnick_knit@1.7.0", 9e9):WaitForChild("knit", 9e9):WaitForChild("Services", 9e9):WaitForChild("TapsService", 9e9):WaitForChild("RE", 9e9):WaitForChild("Taps", 9e9):FireServer(unpack(args))
             end)
-            if not success then
-                warn("[Auto Tap] Error: " .. tostring(err))
-            end
         end
-        task.wait(tapDelay)
+        task.wait(0.1)
     end
 end)
 
--- Auto Rebirth Loop
+-- Auto Hatch (your exact remote + real egg names)
 task.spawn(function()
     while true do
-        if autoRebirth and RebirthRemote then
-            local success, err = pcall(function()
-                RebirthRemote:FireServer(1)
+        if autoHatch then
+            print("🥚 FIRING HATCH - " .. selectedEgg .. " x" .. hatchAmount)
+            local args = { [1] = selectedEgg, [2] = hatchAmount }
+            pcall(function()
+                ReplicatedStorage:WaitForChild("Packages", 9e9):WaitForChild("_Index", 9e9):WaitForChild("sleitnick_knit@1.7.0", 9e9):WaitForChild("knit", 9e9):WaitForChild("Services", 9e9):WaitForChild("EggsService", 9e9):WaitForChild("RE", 9e9):WaitForChild("HatchEggs", 9e9):FireServer(unpack(args))
             end)
-            if not success then
-                warn("[Auto Rebirth] Error: " .. tostring(err))
-            end
         end
-        task.wait(rebirthDelay)
+        task.wait(1.8) -- safe delay (change if too fast/slow)
     end
 end)
 
--- Auto Hatch Loop
-task.spawn(function()
-    while true do
-        if autoHatch and HatchRemote then
-            local success, err = pcall(function()
-                HatchRemote:FireServer(selectedEgg, hatchAmount)
-            end)
-            if not success then
-                warn("[Auto Hatch] Error: " .. tostring(err))
-            end
-        end
-        task.wait(hatchDelay)
-    end
-end)
-
--- Auto Equip Loop
-task.spawn(function()
-    while true do
-        if autoEquip and EquipRemote then
-            local success, err = pcall(function()
-                EquipRemote:FireServer()
-            end)
-            if not success then
-                warn("[Auto Equip] Error: " .. tostring(err))
-            end
-        end
-        task.wait(equipDelay)
-    end
-end)
-
--- ==================== DONE ====================
-print("[Arrayfield Hub] Fully loaded!")
-Rayfield:Notify({
-    Title = "Hub Ready",
-    Content = "Main tab = farming | Hatching tab = eggs | Settings = anti-AFK & info",
-    Duration = 6,
-})
+print("✅ Hub Loaded - Toggle Auto Tap & Auto Hatch!")
+Rayfield:Notify("Ready!", "Main tab = Tap & Hatch | Settings = Anti-AFK", 6)
