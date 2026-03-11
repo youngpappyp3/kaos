@@ -1,12 +1,16 @@
--- Services
+-- Arrayfield Hub - Fixed & Improved for Delta
+-- Auto Tap + Rebirth + Hatch + Equip Best
+
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local VirtualUser = game:GetService("VirtualUser")
 
--- Rayfield UI
+local LocalPlayer = Players.LocalPlayer
+
+-- Rayfield UI (Arrayfield fork)
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
+
 local Window = Rayfield:CreateWindow({
     Name = "Arrayfield Hub",
     LoadingTitle = "Arrayfield Suite",
@@ -14,110 +18,135 @@ local Window = Rayfield:CreateWindow({
     ConfigurationSaving = { Enabled = true, FolderName = nil, FileName = "Arrayfield" },
 })
 
--- Tabs
+-- Tabs & Sections
 local MainTab = Window:CreateTab("Main", 4483362458)
 
--- Sections
 local AutoSection = MainTab:CreateSection("Auto Features", false)
 local HatchSection = MainTab:CreateSection("Auto Hatch & Equip", false)
 local MiscSection = MainTab:CreateSection("Misc Features", false)
 
--- Toggles
+-- Variables
 local autoTap = false
 local autoRebirth = false
 local autoHatch = false
 local autoEquip = false
+local eggToHatch = "Basic"      -- ← Default egg
+local hatchAmount = 1
 
--- Auto Tap
+-- Cached Remotes (faster + cleaner)
+local Packages = ReplicatedStorage:WaitForChild("Packages")
+local Knit = Packages._Index:WaitForChild("sleitnick_knit@1.7.0").knit
+local Services = Knit:WaitForChild("Services")
+
+local TapsRE     = Services.TapsService.RE.Taps
+local RebirthRE  = Services.RebirthsService.RE.Rebirth
+local HatchRE    = Services.EggsService.RE.HatchEggs
+local EquipBestRE = Services.PetsService.RE.EquipBest
+
+-- Timers for safe delays
+local lastTap = 0
+local lastRebirth = 0
+local lastHatch = 0
+local lastEquip = 0
+
+-- ==================== UI ====================
+
 MainTab:CreateToggle({
     Name = "Auto Tap",
     CurrentValue = false,
-    Callback = function(value)
-        autoTap = value
-    end,
+    Callback = function(value) autoTap = value end,
 })
 
--- Auto Rebirth
 MainTab:CreateToggle({
     Name = "Auto Rebirth",
     CurrentValue = false,
-    Callback = function(value)
-        autoRebirth = value
-    end,
+    Callback = function(value) autoRebirth = value end,
 })
 
--- Auto Hatch
 MainTab:CreateToggle({
     Name = "Auto Hatch",
     CurrentValue = false,
-    Callback = function(value)
-        autoHatch = value
-    end,
+    Callback = function(value) autoHatch = value end,
 })
 
--- Auto Equip Best
 MainTab:CreateToggle({
     Name = "Auto Equip Best",
     CurrentValue = false,
-    Callback = function(value)
-        autoEquip = value
+    Callback = function(value) autoEquip = value end,
+})
+
+-- NEW: Egg Dropdown
+MainTab:CreateDropdown({
+    Name = "Select Egg",
+    Options = {"Basic", "Rare", "Epic", "Mythical", "Legendary", "Godly"}, -- ← CHANGE THESE TO YOUR GAME'S REAL EGG NAMES
+    CurrentOption = {"Basic"},
+    MultipleOptions = false,
+    Callback = function(option)
+        eggToHatch = option[1]
     end,
 })
 
--- Input for number of hatches
-local hatchAmount = 1
+-- Hatch Amount Input
 MainTab:CreateInput({
     Name = "Hatch Amount",
     NumbersOnly = true,
     OnEnter = true,
-    PlaceholderText = "Number of Eggs",
+    PlaceholderText = "Number of Eggs (1-100)",
     Callback = function(text)
         hatchAmount = tonumber(text) or 1
+        if hatchAmount < 1 then hatchAmount = 1 end
     end,
 })
 
--- Keybind Example
 MainTab:CreateKeybind({
-    Name = "Toggle Auto Tap Keybind",
+    Name = "Toggle Auto Tap (T)",
     CurrentKeybind = Enum.KeyCode.T,
     HoldToInteract = false,
-    Callback = function()
-        autoTap = not autoTap
-    end,
+    Callback = function() autoTap = not autoTap end,
 })
 
--- Anti-AFK
+-- Anti-AFK (better version)
 MiscSection:CreateButton({
-    Name = "Enable Anti-AFK",
+    Name = "Enable Anti-AFK (Always On)",
     Callback = function()
-        Players.LocalPlayer.Idled:Connect(function()
-            VirtualUser:Button2Down(Vector2.new(0,0),workspace.CurrentCamera.CFrame)
-            wait(1)
-            VirtualUser:Button2Up(Vector2.new(0,0),workspace.CurrentCamera.CFrame)
+        if not LocalPlayer.Idled then return end
+        LocalPlayer.Idled:Connect(function()
+            VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+            task.wait(1)
+            VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
         end)
+        Rayfield:Notify("Anti-AFK", "Enabled - You won't get kicked!", 3)
     end,
 })
 
--- Main loops
+-- ==================== MAIN LOOP ====================
 RunService.RenderStepped:Connect(function()
-    if autoTap then
-        local args = {}
-        ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_knit@1.7.0"):WaitForChild("knit")
-            :WaitForChild("Services"):WaitForChild("TapsService"):WaitForChild("RE"):WaitForChild("Taps"):FireServer(unpack(args))
+    local now = tick()
+
+    -- Auto Tap (fast but safe)
+    if autoTap and now - lastTap > 0.03 then
+        lastTap = now
+        TapsRE:FireServer()
     end
-    if autoRebirth then
-        local args = { [1] = 1 }
-        ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_knit@1.7.0"):WaitForChild("knit")
-            :WaitForChild("Services"):WaitForChild("RebirthsService"):WaitForChild("RE"):WaitForChild("Rebirth"):FireServer(unpack(args))
+
+    -- Auto Rebirth (slower)
+    if autoRebirth and now - lastRebirth > 2 then
+        lastRebirth = now
+        RebirthRE:FireServer(1)
     end
-    if autoHatch then
-        local args = { [1] = "Basic", [2] = hatchAmount }
-        ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_knit@1.7.0"):WaitForChild("knit")
-            :WaitForChild("Services"):WaitForChild("EggsService"):WaitForChild("RE"):WaitForChild("HatchEggs"):FireServer(unpack(args))
+
+    -- Auto Hatch (safe delay - most games detect spam)
+    if autoHatch and now - lastHatch > 1.5 then
+        lastHatch = now
+        HatchRE:FireServer(eggToHatch, hatchAmount)
     end
-    if autoEquip then
-        local args = {}
-        ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_knit@1.7.0"):WaitForChild("knit")
-            :WaitForChild("Services"):WaitForChild("PetsService"):WaitForChild("RE"):WaitForChild("EquipBest"):FireServer(unpack(args))
+
+    -- Auto Equip Best (every 3 seconds is enough)
+    if autoEquip and now - lastEquip > 3 then
+        lastEquip = now
+        EquipBestRE:FireServer()
     end
 end)
+
+print("✅ Arrayfield Hub LOADED successfully! (Delta version)")
+Rayfield:Notify("Script Loaded", "Dropdown & Hatch Amount added!", 5)
