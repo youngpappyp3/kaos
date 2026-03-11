@@ -1,4 +1,4 @@
--- Arrayfield Hub - Tap + Hatch + Anti-AFK (Minimal & Clean)
+-- Arrayfield Hub - Tap + Hatch + Rebirth + Equip + Anti-AFK (Mobile Ready)
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -9,104 +9,97 @@ local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-I
 
 local Window = Rayfield:CreateWindow({
     Name = "Arrayfield Hub",
-    LoadingTitle = "Tap + Hatch",
+    LoadingTitle = "Full Farm",
     LoadingSubtitle = "by Arrays",
     KeySystem = false,
 })
 
--- Tabs
-local MainTab = Window:CreateTab("Main", 4483362458)
+local MainTab = Window:CreateTab("Main")
 local SettingsTab = Window:CreateTab("Settings")
 
 -- Variables
 local autoTap = false
 local autoHatch = false
+local autoRebirth = false
+local autoEquip = false
 local selectedEgg = "Basic"
 local hatchAmount = 1
-local antiAFKEnabled = false
-local antiAFKConnection = nil
+local rebirthAmount = 1   -- changeable
 
 -- ==================== MAIN TAB ====================
-MainTab:CreateSection("Auto Features")
+MainTab:CreateSection("Auto Farming")
 
 MainTab:CreateToggle({
     Name = "Auto Tap (0.1s)",
     CurrentValue = false,
-    Callback = function(Value)
-        autoTap = Value
-        Rayfield:Notify("Auto Tap", Value and "ON - Spamming every 0.1s" or "OFF", 3)
-    end,
+    Callback = function(v) autoTap = v end,
 })
 
 MainTab:CreateToggle({
     Name = "Auto Hatch",
     CurrentValue = false,
-    Callback = function(Value)
-        autoHatch = Value
-        Rayfield:Notify("Auto Hatch", Value and "ON" or "OFF", 3)
-    end,
+    Callback = function(v) autoHatch = v end,
 })
 
--- Egg Dropdown (REAL names from your game)
 MainTab:CreateDropdown({
     Name = "Select Egg",
     Options = {"Basic", "Beach", "Hype", "Ice", "Lava", "Mountain", "Mushroom", "Question", "Release", "Sakura"},
     CurrentOption = {"Basic"},
-    MultipleOptions = false,
-    Callback = function(Option)
-        selectedEgg = Option[1]
-        print("Egg changed to: " .. selectedEgg)
-        Rayfield:Notify("Egg Selected", selectedEgg, 2)
-    end,
+    Callback = function(opt) selectedEgg = opt[1] end,
 })
 
 MainTab:CreateSlider({
     Name = "Hatch Amount",
-    Range = {1, 50},
+    Range = {1, 20},
     Increment = 1,
-    Suffix = " eggs",
     CurrentValue = 1,
-    Callback = function(Value)
-        hatchAmount = Value
-        print("Hatch amount set to: " .. hatchAmount)
-    end,
+    Callback = function(v) hatchAmount = v end,
+})
+
+MainTab:CreateToggle({
+    Name = "Auto Rebirth",
+    CurrentValue = false,
+    Callback = function(v) autoRebirth = v end,
+})
+
+MainTab:CreateSlider({
+    Name = "Rebirth Amount (how many times)",
+    Range = {1, 10},
+    Increment = 1,
+    CurrentValue = 1,
+    Callback = function(v) rebirthAmount = v end,
+})
+
+MainTab:CreateToggle({
+    Name = "Auto Equip Best Pets",
+    CurrentValue = false,
+    Callback = function(v) autoEquip = v end,
 })
 
 -- ==================== SETTINGS TAB ====================
-SettingsTab:CreateSection("Anti-AFK")
+SettingsTab:CreateSection("Misc")
 
 SettingsTab:CreateToggle({
     Name = "Enable Anti-AFK",
     CurrentValue = false,
-    Callback = function(Value)
-        antiAFKEnabled = Value
-        if Value then
-            if antiAFKConnection then antiAFKConnection:Disconnect() end
-            antiAFKConnection = LocalPlayer.Idled:Connect(function()
-                pcall(function()
-                    VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-                    task.wait(1)
-                    VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-                end)
+    Callback = function(v)
+        if v then
+            LocalPlayer.Idled:Connect(function()
+                VirtualUser:Button2Down(Vector2.new(), workspace.CurrentCamera.CFrame)
+                task.wait(1)
+                VirtualUser:Button2Up(Vector2.new(), workspace.CurrentCamera.CFrame)
             end)
-            Rayfield:Notify("Anti-AFK", "Enabled - You won't get kicked!", 4)
-        else
-            if antiAFKConnection then
-                antiAFKConnection:Disconnect()
-                antiAFKConnection = nil
-            end
-            Rayfield:Notify("Anti-AFK", "Disabled", 3)
+            Rayfield:Notify("Anti-AFK", "Enabled", 3)
         end
     end,
 })
 
 -- ==================== LOOPS ====================
 
--- Auto Tap (your working 0.1s loop)
+-- Auto Tap
 task.spawn(function()
     while true do
         if autoTap then
-            print("🔨 FIRING TAP...")
             local args = {}
             pcall(function()
                 ReplicatedStorage:WaitForChild("Packages", 9e9):WaitForChild("_Index", 9e9):WaitForChild("sleitnick_knit@1.7.0", 9e9):WaitForChild("knit", 9e9):WaitForChild("Services", 9e9):WaitForChild("TapsService", 9e9):WaitForChild("RE", 9e9):WaitForChild("Taps", 9e9):FireServer(unpack(args))
@@ -116,19 +109,47 @@ task.spawn(function()
     end
 end)
 
--- Auto Hatch (your exact remote + real egg names)
+-- Auto Hatch (your exact method)
 task.spawn(function()
     while true do
         if autoHatch then
-            print("🥚 FIRING HATCH - " .. selectedEgg .. " x" .. hatchAmount)
+            print("🥚 HATCH → " .. selectedEgg .. " x" .. hatchAmount)
             local args = { [1] = selectedEgg, [2] = hatchAmount }
             pcall(function()
                 ReplicatedStorage:WaitForChild("Packages", 9e9):WaitForChild("_Index", 9e9):WaitForChild("sleitnick_knit@1.7.0", 9e9):WaitForChild("knit", 9e9):WaitForChild("Services", 9e9):WaitForChild("EggsService", 9e9):WaitForChild("RE", 9e9):WaitForChild("HatchEggs", 9e9):FireServer(unpack(args))
             end)
         end
-        task.wait(1.8) -- safe delay (change if too fast/slow)
+        task.wait(1.8)
     end
 end)
 
-print("✅ Hub Loaded - Toggle Auto Tap & Auto Hatch!")
-Rayfield:Notify("Ready!", "Main tab = Tap & Hatch | Settings = Anti-AFK", 6)
+-- Auto Rebirth (your exact method + changeable number)
+task.spawn(function()
+    while true do
+        if autoRebirth then
+            print("♻️ REBIRTH → " .. rebirthAmount .. " times")
+            local args = { [1] = rebirthAmount }
+            pcall(function()
+                ReplicatedStorage:WaitForChild("Packages", 9e9):WaitForChild("_Index", 9e9):WaitForChild("sleitnick_knit@1.7.0", 9e9):WaitForChild("knit", 9e9):WaitForChild("Services", 9e9):WaitForChild("RebirthsService", 9e9):WaitForChild("RE", 9e9):WaitForChild("Rebirth", 9e9):FireServer(unpack(args))
+            end)
+        end
+        task.wait(5) -- safe delay for rebirth
+    end
+end)
+
+-- Auto Equip Best (your exact method)
+task.spawn(function()
+    while true do
+        if autoEquip then
+            print("🐾 EQUIP BEST")
+            local args = {}
+            pcall(function()
+                ReplicatedStorage:WaitForChild("Packages", 9e9):WaitForChild("_Index", 9e9):WaitForChild("sleitnick_knit@1.7.0", 9e9):WaitForChild("knit", 9e9):WaitForChild("Services", 9e9):WaitForChild("PetsService", 9e9):WaitForChild("RE", 9e9):WaitForChild("EquipBest", 9e9):FireServer(unpack(args))
+            end)
+        end
+        task.wait(6)
+    end
+end)
+
+print("✅ Full Hub Loaded - Scroll down on mobile!")
+Rayfield:Notify("All Features Added", "Rebirth amount & Equip Best are now working", 6)
