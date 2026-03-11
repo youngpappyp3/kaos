@@ -1,0 +1,123 @@
+-- Services
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
+
+-- Rayfield UI
+local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
+local Window = Rayfield:CreateWindow({
+    Name = "Arrayfield Hub",
+    LoadingTitle = "Arrayfield Suite",
+    LoadingSubtitle = "by Arrays",
+    ConfigurationSaving = { Enabled = true, FolderName = nil, FileName = "Arrayfield" },
+})
+
+-- Tabs
+local MainTab = Window:CreateTab("Main", 4483362458)
+
+-- Sections
+local AutoSection = MainTab:CreateSection("Auto Features", false)
+local HatchSection = MainTab:CreateSection("Auto Hatch & Equip", false)
+local MiscSection = MainTab:CreateSection("Misc Features", false)
+
+-- Toggles
+local autoTap = false
+local autoRebirth = false
+local autoHatch = false
+local autoEquip = false
+
+-- Auto Tap
+MainTab:CreateToggle({
+    Name = "Auto Tap",
+    CurrentValue = false,
+    Callback = function(value)
+        autoTap = value
+    end,
+})
+
+-- Auto Rebirth
+MainTab:CreateToggle({
+    Name = "Auto Rebirth",
+    CurrentValue = false,
+    Callback = function(value)
+        autoRebirth = value
+    end,
+})
+
+-- Auto Hatch
+MainTab:CreateToggle({
+    Name = "Auto Hatch",
+    CurrentValue = false,
+    Callback = function(value)
+        autoHatch = value
+    end,
+})
+
+-- Auto Equip Best
+MainTab:CreateToggle({
+    Name = "Auto Equip Best",
+    CurrentValue = false,
+    Callback = function(value)
+        autoEquip = value
+    end,
+})
+
+-- Input for number of hatches
+local hatchAmount = 1
+MainTab:CreateInput({
+    Name = "Hatch Amount",
+    NumbersOnly = true,
+    OnEnter = true,
+    PlaceholderText = "Number of Eggs",
+    Callback = function(text)
+        hatchAmount = tonumber(text) or 1
+    end,
+})
+
+-- Keybind Example
+MainTab:CreateKeybind({
+    Name = "Toggle Auto Tap Keybind",
+    CurrentKeybind = Enum.KeyCode.T,
+    HoldToInteract = false,
+    Callback = function()
+        autoTap = not autoTap
+    end,
+})
+
+-- Anti-AFK
+MiscSection:CreateButton({
+    Name = "Enable Anti-AFK",
+    Callback = function()
+        Players.LocalPlayer.Idled:Connect(function()
+            VirtualUser:Button2Down(Vector2.new(0,0),workspace.CurrentCamera.CFrame)
+            wait(1)
+            VirtualUser:Button2Up(Vector2.new(0,0),workspace.CurrentCamera.CFrame)
+        end)
+    end,
+})
+
+-- Main loops
+RunService.RenderStepped:Connect(function()
+    if autoTap then
+        local args = {}
+        ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_knit@1.7.0"):WaitForChild("knit")
+            :WaitForChild("Services"):WaitForChild("TapsService"):WaitForChild("RE"):WaitForChild("Taps"):FireServer(unpack(args))
+    end
+    if autoRebirth then
+        local args = { [1] = 1 }
+        ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_knit@1.7.0"):WaitForChild("knit")
+            :WaitForChild("Services"):WaitForChild("RebirthsService"):WaitForChild("RE"):WaitForChild("Rebirth"):FireServer(unpack(args))
+    end
+    if autoHatch then
+        local args = { [1] = "Basic", [2] = hatchAmount }
+        ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_knit@1.7.0"):WaitForChild("knit")
+            :WaitForChild("Services"):WaitForChild("EggsService"):WaitForChild("RE"):WaitForChild("HatchEggs"):FireServer(unpack(args))
+    end
+    if autoEquip then
+        local args = {}
+        ReplicatedStorage:WaitForChild("Packages"):WaitForChild("_Index"):WaitForChild("sleitnick_knit@1.7.0"):WaitForChild("knit")
+            :WaitForChild("Services"):WaitForChild("PetsService"):WaitForChild("RE"):WaitForChild("EquipBest"):FireServer(unpack(args))
+    end
+end)
