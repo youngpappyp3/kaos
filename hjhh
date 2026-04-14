@@ -9,6 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
 local player = Players.LocalPlayer
 local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local SellPotatoes = Remotes:WaitForChild("SellPotatoes")
 local SellGoldenPotatoes = Remotes:WaitForChild("SellGoldenPotatoes")
 local PerformClick = Remotes:WaitForChild("PerformClick")
 local PerformAscension = Remotes:WaitForChild("PerformAscension")
@@ -37,6 +38,7 @@ local RebirthTab = Window:CreateTab("Rebirths", 4483362458)
 local MacroTab = Window:CreateTab("Macro", 4483362458)
 local MiscTab = Window:CreateTab("Misc", 4483362458)
 local ShopTab = Window:CreateTab("Shop", 4483362458)
+local UpgradeTab = Window:CreateTab("Upgrades", 4483362458)
 
 local Amount = 1
 local Delay = 1
@@ -107,10 +109,51 @@ task.spawn(function()
     end
 end)
 
+local PotatoAmount = 0
+local PotatoDelay = 1
+local PotatoSelling = false
+local PotatoSellLabel = SellTab:CreateLabel("Auto Sell Potatoes")
+local PotatoAmountInput = SellTab:CreateInput({
+   Name = "Amount Of Potatoes",
+   PlaceholderText = "Enter Amount",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Value)
+      PotatoAmount = tonumber(Value) or 0
+   end,
+})
+local PotatoDelayInput = SellTab:CreateInput({
+   Name = "Potato Delay (seconds)",
+   PlaceholderText = "Enter Delay",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Value)
+      PotatoDelay = tonumber(Value) or 0
+   end,
+})
+local AutoSellPotatoesToggle = SellTab:CreateToggle({
+   Name = "Auto Sell Potatoes",
+   CurrentValue = false,
+   Flag = "AutoSellPotatoesToggle",
+   Callback = function(Value)
+      PotatoSelling = Value
+
+      if PotatoSelling then
+         task.spawn(function()
+            while PotatoSelling do
+               if PotatoAmount > 0 then
+                  SellPotatoes:FireServer(PotatoAmount)
+               end
+
+               task.wait(PotatoDelay)
+            end
+         end)
+      end
+   end,
+})
+
 local AutoClickLabel = AutoTab:CreateLabel("Auto Clicker")
 local Clicking = false
 local AutoClickToggle = AutoTab:CreateToggle({
-    Name = "Auto Click (0.02s)",
+    Name = "Auto Click (0.005s)",
     CurrentValue = false,
     Flag = "AutoClickToggle",
     Callback = function(Clicks)
@@ -124,6 +167,44 @@ local AutoClickToggle = AutoTab:CreateToggle({
             end
         end)
     end,
+})
+
+local UpgradeSection = UpgradeTab:CreateSection("Auto Upgrade")
+local UpgradeLabel = UpgradeTab:CreateLabel("Auto Upgrade Loop")
+local AutoUpgradeOrder = {
+   "stronger_hands",
+   "padded_gloves",
+   "golden_trowel",
+   "farmers_instinct",
+   "collectors_guidebook",
+   "premium_fertilizer",
+   "prize_winning_seeds"
+}
+local AutoUpgradeLoop = false
+local AutoUpgradeToggle = UpgradeTab:CreateToggle({
+   Name = "Auto Upgrade Loop",
+   CurrentValue = false,
+   Flag = "AutoUpgradeLoop",
+   Callback = function(Value)
+      AutoUpgradeLoop = Value
+
+      if AutoUpgradeLoop then
+         task.spawn(function()
+            while AutoUpgradeLoop do
+               for _, upgrade in ipairs(AutoUpgradeOrder) do
+                  if not AutoUpgradeLoop then
+                     break
+                  end
+
+                  PurchaseClickUpgrade:FireServer(upgrade)
+                  task.wait(0.2)
+               end
+
+               task.wait(1)
+            end
+         end)
+      end
+   end,
 })
 
 local PrestigeSection = RebirthTab:CreateSection("Ascension")
@@ -230,41 +311,41 @@ local MacroV1Toggle = MacroTab:CreateToggle({
                 MPrestige:FireServer()
                 task.wait(5)
                   
-                MGoldenSell:FireServer(200000)
+                MGoldenSell:FireServer(200_000)
                 task.wait(0.5)
                   
                 MWisdom:FireServer("grandfathers_wisdom")
                 task.wait(0.5)
                   
-                MGoldenSell:FireServer(1000000)
+                MGoldenSell:FireServer(1_000_000)
                 task.wait(1)
 
                 MWisdom:FireServer("grandfathers_wisdom")
                 task.wait(2)
 
-                MGoldenSell:FireServer(28000000)
+                MGoldenSell:FireServer(28_000_000)
                 task.wait(1)
 
                 MEnergy:FireServer("infinite_energy")
                 task.wait(1)
                   
-                MGoldenSell:FireServer(100000000)
+                MGoldenSell:FireServer(100_000_000)
                 MEnergy:FireServer("infinite_energy")
                 task.wait(3)
                
-                MGoldenSell:FireServer(300000000)
+                MGoldenSell:FireServer(300_000_000)
                 MEnergy:FireServer("infinite_energy")
                 task.wait(3)
 
-                MGoldenSell:FireServer(1000000000)
+                MGoldenSell:FireServer(1_000_000_000)
                 MOmni:FireServer("omnipotato_blessing")
                 task.wait(4)
                   
-                MGoldenSell:FireServer(1800000000)
+                MGoldenSell:FireServer(1_800_000_000)
                 MOmni:FireServer("omnipotato_blessing")
                 task.wait(8)
 
-                MGoldenSell:FireServer(14000000000)
+                MGoldenSell:FireServer(14_000_000_000)
                 task.wait(1)
             end
         end)
@@ -285,41 +366,41 @@ local MacroV1Toggle = MacroTab:CreateToggle({
                 MPrestige:FireServer()
                 task.wait(5)
                   
-                MGoldenSell:FireServer(200000)
+                MGoldenSell:FireServer(200_000)
                 task.wait(0.5)
                   
                 MWisdom:FireServer("grandfathers_wisdom")
                 task.wait(0.5)
                   
-                MGoldenSell:FireServer(1000000)
+                MGoldenSell:FireServer(1_000_000)
                 task.wait(1)
 
                 MWisdom:FireServer("grandfathers_wisdom")
                 task.wait(2)
 
-                MGoldenSell:FireServer(28000000)
+                MGoldenSell:FireServer(28_000_000)
                 task.wait(1)
 
                 MEnergy:FireServer("infinite_energy")
                 task.wait(1)
                   
-                MGoldenSell:FireServer(100000000)
+                MGoldenSell:FireServer(100_000_000)
                 MEnergy:FireServer("infinite_energy")
                 task.wait(3)
                
-                MGoldenSell:FireServer(300000000)
+                MGoldenSell:FireServer(300_000_000)
                 MEnergy:FireServer("infinite_energy")
                 task.wait(3)
 
-                MGoldenSell:FireServer(1000000000)
+                MGoldenSell:FireServer(1_000_000_000)
                 MOmni:FireServer("omnipotato_blessing")
                 task.wait(4)
                   
-                MGoldenSell:FireServer(1800000000)
+                MGoldenSell:FireServer(1_800_000_000)
                 MOmni:FireServer("omnipotato_blessing")
                 task.wait(8)
 
-                MGoldenSell:FireServer(8000000000)
+                MGoldenSell:FireServer(8_000_000_000)
                 task.wait(1)
             end
         end)
@@ -414,6 +495,72 @@ local MacroV1Toggle = MacroTab:CreateToggle({
     end,
 })
 
+local ProgressionMacroDivider = MacroTab:CreateSection("Progression Macro")
+local ProgressionMacroLabel = MacroTab:CreateLabel("Progression Macro")
+local progressionmacro = false
+local ProgressionMacroPlan = {
+    {"prestige", nil, 2.5},
+    {"gold_sell", 200_000, 0.1},
+    {"upgrade", "grandfathers_wisdom", 0.4},
+    {"gold_sell", 1_000_000, 0.1},
+    {"upgrade", "grandfathers_wisdom", 0.8},
+    {"gold_sell", 30_000_000, 0.1},
+    {"upgrade", "infinite_energy", 0.6},
+    {"gold_sell", 300_000_000, 0.1},
+    {"upgrade", "infinite_energy", 0.6},
+    {"gold_sell", 1_500_000_000, 0.1},
+    {"upgrade", "omnipotato_blessing", 0.8},
+    {"gold_sell", 8_000_000_000, 0.1},
+    {"upgrade", "transcendent_harvest", 0.8},
+    {"gold_sell", 40_000_000_000, 0.1},
+    {"upgrade", "galactic_harvest", 4}
+}
+local ProgressionMacroToggle = MacroTab:CreateToggle({
+    Name = "Progression Macro V1",
+    CurrentValue = false,
+    Flag = "ProgressionMacroV1",
+    Callback = function(Value)
+        progressionmacro = Value
+
+        if progressionmacro then
+            task.spawn(function()
+                while progressionmacro do
+                    for _, upgrade in ipairs(AutoUpgradeOrder) do
+                        if not progressionmacro then
+                            break
+                        end
+
+                        PurchaseClickUpgrade:FireServer(upgrade)
+                        task.wait(0.15)
+                    end
+
+                    for _, step in ipairs(ProgressionMacroPlan) do
+                        if not progressionmacro then
+                            break
+                        end
+
+                        local action, value, delay = unpack(step)
+
+                        if action == "prestige" then
+                            PerformPrestige:FireServer()
+                        elseif action == "gold_sell" then
+                            SellGoldenPotatoes:FireServer(value)
+                        elseif action == "upgrade" then
+                            PurchaseClickUpgrade:FireServer(value)
+                        end
+
+                        task.wait(delay)
+                    end
+
+                    if progressionmacro and PotatoAmount > 0 then
+                        SellPotatoes:FireServer(PotatoAmount)
+                        task.wait(math.max(PotatoDelay, 0.2))
+                    end
+                end
+            end)
+        end
+    end,
+})
 
 local GeneratorMacroDivider = MacroTab:CreateSection("Generator Macro")
 local GeneratorMacroLabel = MacroTab:CreateLabel("Generator Macro")
