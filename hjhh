@@ -14,16 +14,7 @@ local Window = Rayfield:CreateWindow({
       FolderName = nil,
       FileName = "TatoHubConfig"
    },
-   KeySystem = false,
-   KeySettings = {
-      Title = "Arrayfield",
-      Subtitle = "Key System",
-      Note = "No Key Required",
-      FileName = "Key",
-      SaveKey = false,
-      GrabKeyFromSite = false,
-      Key = "Hello"
-   }
+   KeySystem = false
 })
 
 local SellTab = Window:CreateTab("Sell", 4483362458)
@@ -60,17 +51,21 @@ local AutoSellToggle = SellTab:CreateToggle({
    Callback = function(Value)
       Running = Value
 
-      while Running do
-         local args = {
-            Amount
-         }
+      if Running then
+         task.spawn(function()
+            while Running do
+               local args = {
+                  Amount
+               }
 
-         game:GetService("ReplicatedStorage")
-            :WaitForChild("Remotes")
-            :WaitForChild("SellGoldenPotatoes")
-            :FireServer(unpack(args))
+               game:GetService("ReplicatedStorage")
+                  :WaitForChild("Remotes")
+                  :WaitForChild("SellGoldenPotatoes")
+                  :FireServer(unpack(args))
 
-         task.wait(Delay)
+               task.wait(Delay)
+            end
+         end)
       end
    end,
 })
@@ -133,7 +128,7 @@ local AutoClickToggle = AutoTab:CreateToggle({
         Clicking = Clicks
 
         task.spawn(function()
-            while Clicks do
+            while Clicking do
                 game:GetService("ReplicatedStorage")
                     :WaitForChild("Remotes")
                     :WaitForChild("PerformClick")
@@ -147,21 +142,24 @@ local AutoClickToggle = AutoTab:CreateToggle({
 
 local PrestigeSection = RebirthTab:CreateSection("Ascension")
 local AscendLabel = RebirthTab:CreateLabel("Ascension Upgrades")
+local AbundanceAscend = false
 local AscendToggle = RebirthTab:CreateToggle({
     Name = "Abundance Ascension",
     CurrentValue = false,
     Flag = "AutoAscend",
     Callback = function(abundance)
-        local abundant = abundance
-        spawn(function()
-            while abundant do
-                local args = {
-                    "abundance"
-                }
-                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PerformAscension"):FireServer(unpack(args))
-                task.wait(60)
-            end
-        end)
+        AbundanceAscend = abundance
+        if AbundanceAscend then
+            task.spawn(function()
+                while AbundanceAscend do
+                    local args = {
+                        "abundance"
+                    }
+                    game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PerformAscension"):FireServer(unpack(args))
+                    task.wait(60)
+                end
+            end)
+        end
     end,
 })
 
@@ -174,14 +172,18 @@ local PrestigeAscendToggle = RebirthTab:CreateToggle({
    Callback = function(PrestigeA)
       PrestigeAscend = PrestigeA
 
-      while PrestigeA do
-         local args = {
-            "prestige"
-         }
+      if PrestigeAscend then
+         task.spawn(function()
+            while PrestigeAscend do
+               local args = {
+                  "prestige"
+               }
 
-         game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PerformAscension"):FireServer(unpack(args))
+               game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PerformAscension"):FireServer(unpack(args))
 
-         task.wait(60)
+               task.wait(60)
+            end
+         end)
       end
    end,
 })
@@ -193,10 +195,14 @@ local ThriftyAscendToggle = RebirthTab:CreateToggle({
    Flag = "ThriftyAscension",
    Callback = function(ThriftyAscend)
       ThriftAscend = ThriftyAscend
-      while ThriftAscend do
-         local args = {"thrifty"}
-         game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PerformAscension"):FireServer(unpack(args))
-         task.wait(60)
+      if ThriftAscend then
+         task.spawn(function()
+            while ThriftAscend do
+               local args = {"thrifty"}
+               game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PerformAscension"):FireServer(unpack(args))
+               task.wait(60)
+            end
+         end)
       end
    end,
 })
@@ -210,17 +216,18 @@ local AutoPrestigeToggle = RebirthTab:CreateToggle({
     Flag = "AutoPrestigeToggle",
     Callback = function(APrestige)
         Prestiging = APrestige
+        if Prestiging then
+            task.spawn(function()
+                while Prestiging do
+                    game:GetService("ReplicatedStorage")
+                        :WaitForChild("Remotes")
+                        :WaitForChild("PerformPrestige")
+                        :FireServer()
 
-        task.spawn(function()
-            while Prestiging do
-                game:GetService("ReplicatedStorage")
-                    :WaitForChild("Remotes")
-                    :WaitForChild("PerformPrestige")
-                    :FireServer()
-
-                task.wait(32)
-            end
-        end)
+                    task.wait(32)
+                end
+            end)
+        end
     end,
 })
 
@@ -290,7 +297,6 @@ local MacroV1Toggle = MacroTab:CreateToggle({
     end,
 })
 
-
 local ksmacro = false
 
 local MacroV1Toggle = MacroTab:CreateToggle({
@@ -301,7 +307,7 @@ local MacroV1Toggle = MacroTab:CreateToggle({
         ksmacro = KSMacro1
 
         task.spawn(function()
-            while KSMacro1 do
+            while ksmacro do
                 game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PerformPrestige"):FireServer()
                 task.wait(5)
                   
@@ -444,10 +450,10 @@ local GeneratorMacroV1Toggle = MacroTab:CreateToggle({
     CurrentValue = false,
     Flag = "GeneratorFarmV1",
     Callback = function(GenFarmV1)
-        generatorfarmv1 = GenFarmV1
+        generatorfarm = GenFarmV1
 
         task.spawn(function()
-            while GenFarmV1 do
+            while generatorfarm do
                 game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PerformPrestige"):FireServer()
                 task.wait(1)
                   
