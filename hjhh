@@ -18,7 +18,6 @@ local PurchaseClickUpgrade = Remotes:WaitForChild("PurchaseClickUpgrade")
 local PurchaseGenerator = Remotes:WaitForChild("PurchaseGenerator")
 local DeleteGenerator = Remotes:WaitForChild("DeleteGenerator")
 local PurchaseShopPotato = Remotes:WaitForChild("PurchaseShopPotato")
-local DigStartRound = Remotes:WaitForChild("DigStartRound")
 local DigSquare = Remotes:WaitForChild("DigSquare")
 
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
@@ -242,11 +241,15 @@ local UpgradeLabel = UpgradeTab:CreateLabel("Auto Upgrade Loop")
 local AutoUpgradeOrder = {
    "stronger_hands",
    "padded_gloves",
+   "steel_trowel",
    "golden_trowel",
    "farmers_instinct",
+   "golden_touch",
    "collectors_guidebook",
    "premium_fertilizer",
-   "prize_winning_seeds"
+   "lucky_fertilizer",
+   "prize_winning_seeds",
+   "midas_touch"
 }
 local AutoUpgradeLoop = false
 local AutoUpgradeToggle = UpgradeTab:CreateToggle({
@@ -279,7 +282,6 @@ local DigSection = DigTab:CreateSection("Digging")
 local DigLabel = DigTab:CreateLabel("Smart Auto Dig")
 local AutoDig = false
 local DigSquareIndex = 1
-local DigRoundStarted = false
 local DigGridColumns = 6
 local DigGridRows = 3
 local DigInterval = 1.1
@@ -300,11 +302,6 @@ local AutoDigToggle = DigTab:CreateToggle({
 
                if currentStamina and maxStamina and currentStamina <= 0 then
                   task.wait(DigRegenDelay)
-               elseif not DigRoundStarted then
-                  DigStartRound:FireServer()
-                  DigRoundStarted = true
-                  DigSquareIndex = 1
-                  task.wait(0.35)
                elseif currentStamina and currentStamina < DigStaminaCost then
                   task.wait(DigRegenDelay)
                else
@@ -313,7 +310,6 @@ local AutoDigToggle = DigTab:CreateToggle({
 
                   if DigSquareIndex > DigBoardSize then
                      DigSquareIndex = 1
-                     DigRoundStarted = false
                      task.wait(math.max(DigInterval, 1.2))
                   else
                      task.wait(DigInterval)
@@ -322,7 +318,6 @@ local AutoDigToggle = DigTab:CreateToggle({
             end
 
             DigSquareIndex = 1
-            DigRoundStarted = false
          end)
       end
    end,
