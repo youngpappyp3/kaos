@@ -1,210 +1,682 @@
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players = game:GetService("Players")
-local VirtualUser = game:GetService("VirtualUser")
-local LocalPlayer = Players.LocalPlayer
+local CoreGui = game:GetService("CoreGui")
+local old = CoreGui:FindFirstChild("Rayfield")
+if old then
+    old:Destroy()
+end
 
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
-
 local Window = Rayfield:CreateWindow({
-    Name = "Arrayfield Hub",
-    LoadingTitle = "Full Farm",
-    LoadingSubtitle = "by Arrays",
-    KeySystem = false,
+   Name = "Potato Script V3",
+   LoadingTitle = "Idle Potato Game",
+   LoadingSubtitle = "by Totemoflol",
+   ConfigurationSaving = {
+      Enabled = true,
+      FolderName = nil,
+      FileName = "TatoHubConfig"
+   },
+   Discord = {
+      Enabled = false,
+      Invite = "noinvitelink",
+      RememberJoins = true
+   },
+   KeySystem = false,
+   KeySettings = {
+      Title = "Arrayfield",
+      Subtitle = "Key System",
+      Note = "No Key Required",
+      FileName = "Key",
+      SaveKey = false,
+      GrabKeyFromSite = false,
+      Key = "Hello"
+   }
 })
 
-local MainTab = Window:CreateTab("Main")
-local SettingsTab = Window:CreateTab("Settings")
+local SellTab = Window:CreateTab("Sell", 4483362458)
+local AutoTab = Window:CreateTab("Auto", 4483362458)
+local RebirthTab = Window:CreateTab("Rebirths", 4483362458)
+local MacroTab = Window:CreateTab("Macro", 4483362458)
+local MiscTab = Window:CreateTab("Misc", 4483362458)
+local ShopTab = Window:CreateTab("Shop", 4483362458)
 
--- Variables
-local autoTap = false
-local autoHatch = false
-local autoRebirth = false
-local autoEquip = false
-local selectedEgg = "Basic"
-local hatchAmount = 1
-local rebirthAmount = 1
+local Amount = 1
+local Delay = 1
+local Running = false
+local Label = SellTab:CreateLabel("Auto Sell")
+local AmountInput = SellTab:CreateInput({
+   Name = "Amount Of Gold Potatoes",
+   PlaceholderText = "Enter Amount",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Value)
+      Amount = tonumber(Value) or 0
+   end,
+})
+local DelayInput = SellTab:CreateInput({
+   Name = "Delay (seconds)",
+   PlaceholderText = "Enter Delay",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Value)
+      Delay = tonumber(Value) or 0
+   end,
+})
+local AutoSellToggle = SellTab:CreateToggle({
+   Name = "Auto Sell",
+   CurrentValue = false,
+   Flag = "AutoSellToggle",
+   Callback = function(Value)
+      Running = Value
 
--- ==================== MAIN TAB ====================
-MainTab:CreateSection("Auto Farming")
+      while Running do
+         local args = {
+            Amount
+         }
 
-MainTab:CreateToggle({
-    Name = "Auto Tap (0.1s)",
+         game:GetService("ReplicatedStorage")
+            :WaitForChild("Remotes")
+            :WaitForChild("SellGoldenPotatoes")
+            :FireServer(unpack(args))
+
+         task.wait(Delay)
+      end
+   end,
+})
+
+local Section = SellTab:CreateSection("Auto Sell Golden Potatoes")
+
+local selling = false
+
+local SellAllToggle = SellTab:CreateToggle({
+    Name = "Auto Sell Golden Potatoes",
     CurrentValue = false,
-    Callback = function(v)
-        autoTap = v
+    Flag = "AutoSellGolden",
+    Callback = function(state)
+        selling = state
     end,
 })
 
-MainTab:CreateToggle({
-    Name = "Auto Hatch",
-    CurrentValue = false,
-    Callback = function(v)
-        autoHatch = v
-    end,
-})
-
-MainTab:CreateDropdown({
-    Name = "Select Egg",
-    Options = {"Basic", "Beach", "Hype", "Ice", "Lava", "Mountain", "Mushroom", "Question", "Release", "Sakura"},
-    CurrentOption = {"Basic"},
-    Callback = function(opt)
-        selectedEgg = opt[1]
-    end,
-})
-
-MainTab:CreateSlider({
-    Name = "Hatch Amount",
-    Range = {1, 20},
-    Increment = 1,
-    CurrentValue = 1,
-    Callback = function(v)
-        hatchAmount = v
-    end,
-})
-
-MainTab:CreateToggle({
-    Name = "Auto Rebirth",
-    CurrentValue = false,
-    Callback = function(v)
-        autoRebirth = v
-    end,
-})
-
--- INPUT BOX INSTEAD OF SLIDER
-MainTab:CreateInput({
-    Name = "Rebirth Amount",
-    PlaceholderText = "Enter number",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(text)
-        local num = tonumber(text)
-        if num then
-            rebirthAmount = num
-        end
-    end,
-})
-
-MainTab:CreateToggle({
-    Name = "Auto Equip Best Pets",
-    CurrentValue = false,
-    Callback = function(v)
-        autoEquip = v
-    end,
-})
-
--- ==================== SETTINGS TAB ====================
-SettingsTab:CreateSection("Misc")
-
-SettingsTab:CreateToggle({
-    Name = "Enable Anti-AFK",
-    CurrentValue = false,
-    Callback = function(v)
-        if v then
-            LocalPlayer.Idled:Connect(function()
-                VirtualUser:Button2Down(Vector2.new(), workspace.CurrentCamera.CFrame)
-                task.wait(1)
-                VirtualUser:Button2Up(Vector2.new(), workspace.CurrentCamera.CFrame)
-            end)
-            Rayfield:Notify("Anti-AFK", "Enabled", 3)
-        end
-    end,
-})
-
--- ==================== LOOPS ====================
-
--- Auto Tap
 task.spawn(function()
+    local player = game:GetService("Players").LocalPlayer
+    local gui = player.PlayerGui:WaitForChild("PotatoGameGUI")
+        .Background.ClickerArea.ClickerContainer.CurrencyFrame
+    local goldLabel = gui:WaitForChild("GoldenRow"):WaitForChild("GoldenCount")
+    local r = game:GetService("ReplicatedStorage"):WaitForChild("Remotes")
+
+    local cashLabel = player.PlayerGui:WaitForChild("PotatoGameGUI")
+        .Background.StatsArea.StatsScrollFrame.StatsContainer
+        :WaitForChild("SectionCard_Balances")
+        :WaitForChild("SB_Cash")
+
+    local function parseText(text)
+        local num = tonumber(string.match(text, "%d+%.?%d*")) or 0
+        if string.find(text, "B") then
+            return num * 1e9
+        elseif string.find(text, "M") then
+            return num * 1e6
+        else
+            return num
+        end
+    end
+
     while true do
-        if autoTap then
-            local args = {}
-            pcall(function()
-                ReplicatedStorage:WaitForChild("Packages", 9e9)
-                :WaitForChild("_Index", 9e9)
-                :WaitForChild("sleitnick_knit@1.7.0", 9e9)
-                :WaitForChild("knit", 9e9)
-                :WaitForChild("Services", 9e9)
-                :WaitForChild("TapsService", 9e9)
-                :WaitForChild("RE", 9e9)
-                :WaitForChild("Taps", 9e9)
-                :FireServer(unpack(args))
-            end)
+        if selling then
+            local gold = tonumber(goldLabel.Text) or 0
+            if gold > 0 then
+                r.SellGoldenPotatoes:FireServer(gold)
+            end
+
         end
         task.wait(0.1)
     end
 end)
 
--- Auto Hatch
-task.spawn(function()
-    while true do
-        if autoHatch then
-            print("🥚 HATCH → " .. selectedEgg .. " x" .. hatchAmount)
+local AutoClickLabel = AutoTab:CreateLabel("Auto Clicker")
+local Clicking = false
+local AutoClickToggle = AutoTab:CreateToggle({
+    Name = "Auto Click (0.02s)",
+    CurrentValue = false,
+    Flag = "AutoClickToggle",
+    Callback = function(Clicks)
+        Clicking = Clicks
 
+        task.spawn(function()
+            while Clicks do
+                game:GetService("ReplicatedStorage")
+                    :WaitForChild("Remotes")
+                    :WaitForChild("PerformClick")
+                    :FireServer()
+
+                task.wait(0.02)
+            end
+        end)
+    end,
+})
+
+local PrestigeSection = RebirthTab:CreateSection("Ascension")
+local AscendLabel = RebirthTab:CreateLabel("Ascension Upgrades")
+local AscendToggle = RebirthTab:CreateToggle({
+    Name = "Abundance Ascension",
+    CurrentValue = false,
+    Flag = "AutoAscend",
+    Callback = function(abundance)
+        local abundant = abundance
+        spawn(function()
+            while abundant do
+                local args = {
+                    "abundance"
+                }
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PerformAscension"):FireServer(unpack(args))
+                task.wait(60)
+            end
+        end)
+    end,
+})
+
+local PrestigeAscend = false
+
+local PrestigeAscendToggle = RebirthTab:CreateToggle({
+   Name = "Prestige Ascension",
+   CurrentValue = false,
+   Flag = "PrestigeAscension",
+   Callback = function(PrestigeA)
+      PrestigeAscend = PrestigeA
+
+      while PrestigeA do
+         local args = {
+            "prestige"
+         }
+
+         game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PerformAscension"):FireServer(unpack(args))
+
+         task.wait(60)
+      end
+   end,
+})
+
+local ThriftAscend = false
+local ThriftyAscendToggle = RebirthTab:CreateToggle({
+   Name = "Thrifty Ascension",
+   CurrentValue = false,
+   Flag = "ThriftyAscension",
+   Callback = function(ThriftyAscend)
+      ThriftAscend = ThriftyAscend
+      while ThriftAscend do
+         local args = {"thrifty"}
+         game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PerformAscension"):FireServer(unpack(args))
+         task.wait(60)
+      end
+   end,
+})
+
+local Divider = RebirthTab:CreateSection("Prestige")
+local PrestigeLabel = RebirthTab:CreateLabel("Auto Prestige")
+local Prestiging = false
+local AutoPrestigeToggle = RebirthTab:CreateToggle({
+    Name = "Auto Prestige (32s)",
+    CurrentValue = false,
+    Flag = "AutoPrestigeToggle",
+    Callback = function(APrestige)
+        Prestiging = APrestige
+
+        task.spawn(function()
+            while Prestiging do
+                game:GetService("ReplicatedStorage")
+                    :WaitForChild("Remotes")
+                    :WaitForChild("PerformPrestige")
+                    :FireServer()
+
+                task.wait(32)
+            end
+        end)
+    end,
+})
+
+local Section = MacroTab:CreateSection("Prestige Macro 15-30")
+local StableMacroLabel = MacroTab:CreateLabel("Stable Macro")
+
+local Remotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes")
+local MPrestige = Remotes:WaitForChild("PerformPrestige")
+local MGoldenSell = Remotes:WaitForChild("SellGoldenPotatoes")
+local MWisdom = Remotes:WaitForChild("PurchaseClickUpgrade")
+local MEnergy = Remotes:WaitForChild("PurchaseClickUpgrade")
+local MOmni = Remotes:WaitForChild("PurchaseClickUpgrade")
+local MHarvest = Remotes:WaitForChild("PurchaseClickUpgrade")
+local MGalactic = Remotes:WaitForChild("PurchaseClickUpgrade")
+
+local macroing = false
+local MacroV1Toggle = MacroTab:CreateToggle({
+    Name = "Macro V1",
+    CurrentValue = false,
+    Flag = "MacroV1",
+    Callback = function(MacroV1)
+        macroing = MacroV1
+
+        task.spawn(function()
+            while macroing do
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PerformPrestige"):FireServer()
+                task.wait(5)
+                  
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(200000)
+                task.wait(0.5)
+                  
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseClickUpgrade"):FireServer("grandfathers_wisdom")
+                task.wait(0.5)
+                  
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(1000000)
+                task.wait(1)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseClickUpgrade"):FireServer("grandfathers_wisdom")
+                task.wait(2)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(28000000)
+                task.wait(1)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseClickUpgrade"):FireServer("infinite_energy")
+                task.wait(1)
+                  
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(100000000)
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseClickUpgrade"):FireServer("infinite_energy")
+                task.wait(3)
+               
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(300000000)
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseClickUpgrade"):FireServer("infinite_energy")
+                task.wait(3)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(1000000000)
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseClickUpgrade"):FireServer("omnipotato_blessing")
+                task.wait(4)
+                  
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(1800000000)
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseClickUpgrade"):FireServer("omnipotato_blessing")
+                task.wait(8)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(14000000000)
+                task.wait(1)
+            end
+        end)
+    end,
+})
+
+
+local ksmacro = false
+
+local MacroV1Toggle = MacroTab:CreateToggle({
+    Name = "KS Macro V1",
+    CurrentValue = false,
+    Flag = "KSMacroV1",
+    Callback = function(KSMacro1)
+        ksmacro = KSMacro1
+
+        task.spawn(function()
+            while KSMacro1 do
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PerformPrestige"):FireServer()
+                task.wait(5)
+                  
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(200000)
+                task.wait(0.5)
+                  
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseClickUpgrade"):FireServer("grandfathers_wisdom")
+                task.wait(0.5)
+                  
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(1000000)
+                task.wait(1)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseClickUpgrade"):FireServer("grandfathers_wisdom")
+                task.wait(2)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(28000000)
+                task.wait(1)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseClickUpgrade"):FireServer("infinite_energy")
+                task.wait(1)
+                  
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(100000000)
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseClickUpgrade"):FireServer("infinite_energy")
+                task.wait(3)
+               
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(300000000)
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseClickUpgrade"):FireServer("infinite_energy")
+                task.wait(3)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(1000000000)
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseClickUpgrade"):FireServer("omnipotato_blessing")
+                task.wait(4)
+                  
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(1800000000)
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseClickUpgrade"):FireServer("omnipotato_blessing")
+                task.wait(8)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(8000000000)
+                task.wait(1)
+            end
+        end)
+    end,
+})
+
+local SuperHumanMacroDivider = MacroTab:CreateSection("SuperHuman Macro")
+local SuperHumanMacroLabel = MacroTab:CreateLabel("SuperHuman Macro")
+
+local superhumanmacro = false
+
+local SuperMacroV1 = {
+    {"prestige", nil, 2.6},
+
+    {"sell", 1_000_000, 0.05},
+    {"wisdom", nil, 0.8},
+
+    {"sell", 428_700, 0.05},
+    {"wisdom", nil, 1.9},
+
+    {"sell", 140_000_000, 0.05},
+    {"energy", nil, 0.3},
+
+    {"sell", 150_000_000, 0},
+    {"energy", nil, 0.6},
+
+    {"sell", 300_000_000, 0},
+    {"energy", nil, 1},
+
+    {"sell", 2_870_000_000, 0},
+    {"omni", nil, 1},
+
+    {"sell", 4_000_000_000, 0},
+    {"omni", nil, 1},
+
+    {"sell", 8_000_000_000, 0},
+    {"harvest", nil, 0.6},
+
+    {"sell", 27_830_000_000, 0},
+    {"harvest", nil, 0.05},
+
+    {"galactic", nil, 0.5},
+
+    {"sell", 40_670_000_000, 0},
+    {"galactic", nil, 20.5},
+
+    {"sell", 3_000_000_000_000, 0.5}
+}
+
+local MacroV1Toggle = MacroTab:CreateToggle({
+    Name = "SuperHumanMacro V1",
+    CurrentValue = false,
+    Flag = "SuperHumanMacroV1",
+
+    Callback = function(superhumanmacrov1)
+        superhumanmacro = superhumanmacrov1
+        task.spawn(function()
+            while superhumanmacro do
+
+                for _,step in ipairs(SuperMacroV1) do
+                    if not superhumanmacro then break end
+
+                    local action,value,delay = unpack(step)
+
+                    if action == "prestige" then
+                        MPrestige:FireServer()
+
+                    elseif action == "sell" then
+                        MGoldenSell:FireServer(value)
+
+                    elseif action == "wisdom" then
+                        MWisdom:FireServer("grandfathers_wisdom")
+
+                    elseif action == "energy" then
+                        MEnergy:FireServer("infinite_energy")
+
+                    elseif action == "omni" then
+                        MOmni:FireServer("omnipotato_blessing")
+
+                    elseif action == "harvest" then
+                        MHarvest:FireServer("transcendent_harvest")
+
+                    elseif action == "galactic" then
+                        MGalactic:FireServer("galactic_harvest")
+                    end
+
+                    task.wait(delay)
+                end
+
+            end
+        end)
+    end,
+})
+
+
+local GeneratorMacroDivider = MacroTab:CreateSection("Generator Macro")
+local GeneratorMacroLabel = MacroTab:CreateLabel("Generator Macro")
+
+local generatorfarm = false
+local GeneratorMacroV1Toggle = MacroTab:CreateToggle({
+    Name = "Generator Farm V1",
+    CurrentValue = false,
+    Flag = "GeneratorFarmV1",
+    Callback = function(GenFarmV1)
+        generatorfarmv1 = GenFarmV1
+
+        task.spawn(function()
+            while GenFarmV1 do
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PerformPrestige"):FireServer()
+                task.wait(1)
+                  
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(4_400_000)
+                task.wait(0.05)
+                  
+                local args = {"dimensional_mirror"}
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseGenerator"):FireServer(unpack(args))
+                task.wait(0.5)
+                  
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(460_000_000)
+                task.wait(0.05)
+
+                local args = {"temporal_harvester"}
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseGenerator"):FireServer(unpack(args))
+                task.wait(3)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(100_000_000_000)
+                task.wait(0.05)
+
+                local args = {"superfactory_number_67"}
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseGenerator"):FireServer(unpack(args))
+                task.wait(1.8)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(1_200_000_000_000)
+                task.wait(0.05)
+
+                local args = {"potato_nexus"}
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseGenerator"):FireServer(unpack(args))
+                task.wait(3.4)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(20_000_000_000_000)
+                task.wait(0.05)
+
+                local args = {"omnipotato"}
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseGenerator"):FireServer(unpack(args))
+                task.wait(0.8)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(30_000_000_000_000)
+                task.wait(0.05)
+
+                local args = {"omnipotato"}
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseGenerator"):FireServer(unpack(args))
+                task.wait(3.8)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(300_000_000_000_000)
+                task.wait(0.05)
+
+                local args = {"double_omnipotato"}
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseGenerator"):FireServer(unpack(args))
+                task.wait(2)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(800_000_000_000_000)
+                task.wait(0.05)
+
+                local args = {"double_omnipotato"}
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseGenerator"):FireServer(unpack(args))
+                task.wait(4)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(5_000_000_000_000_000)
+                task.wait(0.05)
+
+                local args = {"infinite_omnipotato"}
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseGenerator"):FireServer(unpack(args))
+                task.wait(1)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(8_000_000_000_000_000)
+                task.wait(0.05)
+
+                local args = {"infinite_omnipotato"}
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseGenerator"):FireServer(unpack(args))
+                task.wait(3.4)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(50_000_000_000_000_000)
+                task.wait(0.05)
+
+                local args = {"potato_infinite_universe"}
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseGenerator"):FireServer(unpack(args))
+                task.wait(7)
+
+                game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("SellGoldenPotatoes"):FireServer(2_000_000_000_000_000_000)
+                task.wait(0.10)
+
+            end
+        end)
+    end,
+})
+
+local NotificationContainer = game:GetService("Players").LocalPlayer.PlayerGui:WaitForChild("PotatoGameGUI"):WaitForChild("NotificationContainer")
+local NoNotifToggle = MiscTab:CreateToggle({
+   Name = "Disable Notifications",
+   CurrentValue = false,
+   Flag = "DisableNotifications",
+   Callback = function(DisableNotifications)
+		NotificationContainer.Visible = not DisableNotifications
+   end,
+})
+
+local GeneratorFarm = false
+
+local GeneratorFarmToggle = MiscTab:CreateToggle({
+   Name = "Auto Farm Generator",
+   CurrentValue = false,
+   Flag = "GeneratorFarm",
+   Callback = function(GFarm)
+      GeneratorFarm = GFarm
+
+      task.spawn(function()
+         while GeneratorFarm do
+            game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("PurchaseGenerator"):FireServer("potato_seedling")
+            game:GetService("ReplicatedStorage"):WaitForChild("Remotes"):WaitForChild("DeleteGenerator"):FireServer("potato_seedling")
+            task.wait(0.05)
+         end
+      end)
+   end,
+})
+
+local autobuy = false
+local ProductionAutoBuyToggle = ShopTab:CreateToggle({
+   Name = "Production AutoBuy",
+   CurrentValue = false,
+   Flag = "ProductionAutoBuy",
+   Callback = function(ProductionPotion)
+      AutoBuyProductionPotion = ProductionPotion
+      task.spawn(function()
+         while AutoBuyProductionPotion do
             local args = {
-                [1] = selectedEgg,
-                [2] = hatchAmount
+               "potion_production"
             }
 
-            pcall(function()
-                ReplicatedStorage:WaitForChild("Packages", 9e9)
-                :WaitForChild("_Index", 9e9)
-                :WaitForChild("sleitnick_knit@1.7.0", 9e9)
-                :WaitForChild("knit", 9e9)
-                :WaitForChild("Services", 9e9)
-                :WaitForChild("EggsService", 9e9)
-                :WaitForChild("RE", 9e9)
-                :WaitForChild("HatchEggs", 9e9)
-                :FireServer(unpack(args))
-            end)
-        end
-        task.wait(1.8)
-    end
-end)
+            game:GetService("ReplicatedStorage")
+               :WaitForChild("Remotes")
+               :WaitForChild("PurchaseShopPotato")
+               :FireServer(unpack(args))
+            task.wait(60)
+         end
+      end)
+   end,
+})
 
--- Auto Rebirth
-task.spawn(function()
-    while true do
-        if autoRebirth then
-            print("♻️ REBIRTH → " .. rebirthAmount .. " times")
-
+local autobuyluck = false
+local LuckAutoBuyToggle = ShopTab:CreateToggle({
+   Name = "Luck AutoBuy",
+   CurrentValue = false,
+   Flag = "LuckAutoBuy",
+   Callback = function(LuckPotion)
+      AutoBuyLuckPotion = LuckPotion
+      task.spawn(function()
+         while AutoBuyLuckPotion do
             local args = {
-                [1] = rebirthAmount
+               "potion_luck"
             }
 
-            pcall(function()
-                ReplicatedStorage:WaitForChild("Packages", 9e9)
-                :WaitForChild("_Index", 9e9)
-                :WaitForChild("sleitnick_knit@1.7.0", 9e9)
-                :WaitForChild("knit", 9e9)
-                :WaitForChild("Services", 9e9)
-                :WaitForChild("RebirthsService", 9e9)
-                :WaitForChild("RE", 9e9)
-                :WaitForChild("Rebirth", 9e9)
-                :FireServer(unpack(args))
-            end)
+            game:GetService("ReplicatedStorage")
+               :WaitForChild("Remotes")
+               :WaitForChild("PurchaseShopPotato")
+               :FireServer(unpack(args))
+            task.wait(60)
+         end
+      end)
+   end,
+})
+
+local autobuygolden = false
+local GoldenAutoBuyToggle = ShopTab:CreateToggle({
+   Name = "GoldenAutoBuy",
+   CurrentValue = false,
+   Flag = "GoldenAutoBuy",
+   Callback = function(GoldenPotion)
+      AutoBuyGoldenPotion = GoldenPotion
+      task.spawn(function()
+         while AutoBuyGoldenPotion do
+            local args = {
+               "potion_golden"
+            }
+
+            game:GetService("ReplicatedStorage")
+               :WaitForChild("Remotes")
+               :WaitForChild("PurchaseShopPotato")
+               :FireServer(unpack(args))
+            task.wait(60)
+         end
+      end)
+   end,
+})
+local AutoBuyClickPotion = false
+local ClickAutoBuyToggle = ShopTab:CreateToggle({
+   Name = "Click AutoBuy",
+   CurrentValue = false,
+   Flag = "ClickAutoBuy",
+   Callback = function(ClickPotion)
+      AutoBuyClickPotion = ClickPotion
+      task.spawn(function()
+         while AutoBuyClickPotion do
+            local args = {
+               "potion_click"
+            }
+
+            game:GetService("ReplicatedStorage")
+               :WaitForChild("Remotes")
+               :WaitForChild("PurchaseShopPotato")
+               :FireServer(unpack(args))
+            task.wait(60)
+         end
+      end)
+   end,
+})
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+if getconnections then
+    for _, connection in pairs(getconnections(player.Idled)) do
+        if connection.Disable then
+            connection:Disable()
+        elseif connection.Disconnect then
+            connection:Disconnect()
         end
-        task.wait(5)
     end
-end)
+else
+    player.Idled:Connect(function()
+        game:GetService("VirtualUser"):Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        game:GetService("VirtualUser"):Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    end)
+end
 
--- Auto Equip Best
-task.spawn(function()
-    while true do
-        if autoEquip then
-            print("🐾 EQUIP BEST")
-
-            local args = {}
-
-            pcall(function()
-                ReplicatedStorage:WaitForChild("Packages", 9e9)
-                :WaitForChild("_Index", 9e9)
-                :WaitForChild("sleitnick_knit@1.7.0", 9e9)
-                :WaitForChild("knit", 9e9)
-                :WaitForChild("Services", 9e9)
-                :WaitForChild("PetsService", 9e9)
-                :WaitForChild("RE", 9e9)
-                :WaitForChild("EquipBest", 9e9)
-                :FireServer(unpack(args))
-            end)
-        end
-        task.wait(6)
-    end
-end)
+Rayfield:LoadConfiguration()
