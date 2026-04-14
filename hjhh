@@ -14,11 +14,6 @@ local Window = Rayfield:CreateWindow({
       FolderName = nil,
       FileName = "TatoHubConfig"
    },
-   Discord = {
-      Enabled = false,
-      Invite = "noinvitelink",
-      RememberJoins = true
-   },
    KeySystem = false,
    KeySettings = {
       Title = "Arrayfield",
