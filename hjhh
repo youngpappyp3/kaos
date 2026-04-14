@@ -18,6 +18,8 @@ local PurchaseClickUpgrade = Remotes:WaitForChild("PurchaseClickUpgrade")
 local PurchaseGenerator = Remotes:WaitForChild("PurchaseGenerator")
 local DeleteGenerator = Remotes:WaitForChild("DeleteGenerator")
 local PurchaseShopPotato = Remotes:WaitForChild("PurchaseShopPotato")
+local DigStartRound = Remotes:WaitForChild("DigStartRound")
+local DigSquare = Remotes:WaitForChild("DigSquare")
 
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
 local Window = Rayfield:CreateWindow({
@@ -39,6 +41,82 @@ local MacroTab = Window:CreateTab("Macro", 4483362458)
 local MiscTab = Window:CreateTab("Misc", 4483362458)
 local ShopTab = Window:CreateTab("Shop", 4483362458)
 local UpgradeTab = Window:CreateTab("Upgrades", 4483362458)
+local DigTab = Window:CreateTab("Dig", 4483362458)
+
+local PotatoGameGui = player.PlayerGui:WaitForChild("PotatoGameGUI")
+local CurrencyFrame = PotatoGameGui.Background.ClickerArea.ClickerContainer.CurrencyFrame
+
+local function ParseCurrencyAmount(text)
+   local sanitized = tostring(text or ""):gsub(",", "")
+   local amount = tonumber(sanitized:match("%-?[%d%.]+"))
+   return amount or 0
+end
+
+local function FindCurrencyLabel(rowNames, countNames)
+   for _, rowName in ipairs(rowNames) do
+      local row = CurrencyFrame:FindFirstChild(rowName, true)
+      if row then
+         for _, countName in ipairs(countNames) do
+            local countLabel = row:FindFirstChild(countName, true)
+            if countLabel then
+               return countLabel
+            end
+         end
+
+         local fallbackLabel = row:FindFirstChildWhichIsA("TextLabel", true)
+         if fallbackLabel then
+            return fallbackLabel
+         end
+      end
+   end
+end
+
+local GoldenCountLabel = FindCurrencyLabel({"GoldenRow"}, {"GoldenCount"})
+local PotatoCountLabel = FindCurrencyLabel({"PotatoRow", "PotatoesRow", "NormalRow"}, {"PotatoCount", "Count"})
+
+local function FindStaminaLabel()
+   local preferredNames = {
+      "StaminaValue",
+      "StaminaLabel",
+      "StaminaText",
+      "CurrentStamina"
+   }
+
+   for _, name in ipairs(preferredNames) do
+      local label = PotatoGameGui:FindFirstChild(name, true)
+      if label and label:IsA("TextLabel") then
+         return label
+      end
+   end
+
+   for _, descendant in ipairs(PotatoGameGui:GetDescendants()) do
+      if descendant:IsA("TextLabel") then
+         local text = tostring(descendant.Text or "")
+         if text:match("^%s*[%d,%.]+%s*/%s*[%d,%.]+%s*$") then
+            return descendant
+         end
+      end
+   end
+end
+
+local StaminaLabel = FindStaminaLabel()
+
+local function GetStaminaValues()
+   if not StaminaLabel or not StaminaLabel.Parent then
+      StaminaLabel = FindStaminaLabel()
+   end
+
+   if not StaminaLabel then
+      return nil, nil
+   end
+
+   local currentText, maxText = tostring(StaminaLabel.Text or ""):match("([%d,%.]+)%s*/%s*([%d,%.]+)")
+   if not currentText or not maxText then
+      return nil, nil
+   end
+
+   return ParseCurrencyAmount(currentText), ParseCurrencyAmount(maxText)
+end
 
 local Amount = 1
 local Delay = 1
@@ -84,43 +162,30 @@ local Section = SellTab:CreateSection("Auto Sell Golden Potatoes")
 local selling = false
 
 local SellAllToggle = SellTab:CreateToggle({
-    Name = "Auto Sell Golden Potatoes",
-    CurrentValue = false,
-    Flag = "AutoSellGolden",
-    Callback = function(state)
-        selling = state
-    end,
+   Name = "Auto Sell Golden Potatoes",
+   CurrentValue = false,
+   Flag = "AutoSellGolden",
+   Callback = function(state)
+      selling = state
+   end,
 })
 
 task.spawn(function()
-    local gui = player.PlayerGui:WaitForChild("PotatoGameGUI")
-        .Background.ClickerArea.ClickerContainer.CurrencyFrame
-    local goldLabel = gui:WaitForChild("GoldenRow"):WaitForChild("GoldenCount")
+   while true do
+      if selling and GoldenCountLabel then
+         local gold = ParseCurrencyAmount(GoldenCountLabel.Text)
+         if gold > 0 then
+            SellGoldenPotatoes:FireServer(gold)
+         end
 
-    while true do
-        if selling then
-            local gold = tonumber(goldLabel.Text) or 0
-            if gold > 0 then
-                SellGoldenPotatoes:FireServer(gold)
-            end
-
-        end
-        task.wait(0.15)
-    end
+      end
+      task.wait(0.15)
+   end
 end)
 
-local PotatoAmount = 0
-local PotatoDelay = 1
+local PotatoDelay = 20
 local PotatoSelling = false
 local PotatoSellLabel = SellTab:CreateLabel("Auto Sell Potatoes")
-local PotatoAmountInput = SellTab:CreateInput({
-   Name = "Amount Of Potatoes",
-   PlaceholderText = "Enter Amount",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Value)
-      PotatoAmount = tonumber(Value) or 0
-   end,
-})
 local PotatoDelayInput = SellTab:CreateInput({
    Name = "Potato Delay (seconds)",
    PlaceholderText = "Enter Delay",
@@ -139,8 +204,11 @@ local AutoSellPotatoesToggle = SellTab:CreateToggle({
       if PotatoSelling then
          task.spawn(function()
             while PotatoSelling do
-               if PotatoAmount > 0 then
-                  SellPotatoes:FireServer(PotatoAmount)
+               if PotatoCountLabel then
+                  local potatoes = ParseCurrencyAmount(PotatoCountLabel.Text)
+                  if potatoes > 0 then
+                     SellPotatoes:FireServer(potatoes)
+                  end
                end
 
                task.wait(PotatoDelay)
@@ -153,20 +221,20 @@ local AutoSellPotatoesToggle = SellTab:CreateToggle({
 local AutoClickLabel = AutoTab:CreateLabel("Auto Clicker")
 local Clicking = false
 local AutoClickToggle = AutoTab:CreateToggle({
-    Name = "Auto Click (0.005s)",
-    CurrentValue = false,
-    Flag = "AutoClickToggle",
-    Callback = function(Clicks)
-        Clicking = Clicks
+   Name = "Auto Click (0.005s)",
+   CurrentValue = false,
+   Flag = "AutoClickToggle",
+   Callback = function(Clicks)
+      Clicking = Clicks
 
-        task.spawn(function()
-            while Clicking do
-                PerformClick:FireServer()
+      task.spawn(function()
+         while Clicking do
+            PerformClick:FireServer()
 
-                task.wait(0.005)
-            end
-        end)
-    end,
+            task.wait(0.005)
+         end
+      end)
+   end,
 })
 
 local UpgradeSection = UpgradeTab:CreateSection("Auto Upgrade")
@@ -207,24 +275,72 @@ local AutoUpgradeToggle = UpgradeTab:CreateToggle({
    end,
 })
 
+local DigSection = DigTab:CreateSection("Digging")
+local DigLabel = DigTab:CreateLabel("Smart Auto Dig")
+local AutoDig = false
+local DigSquareIndex = 1
+local DigRoundStarted = false
+local DigInterval = 1.1
+local DigStaminaCost = 5
+local DigBoardSize = 18
+local AutoDigToggle = DigTab:CreateToggle({
+   Name = "Auto Dig",
+   CurrentValue = false,
+   Flag = "AutoDigToggle",
+   Callback = function(Value)
+      AutoDig = Value
+
+      if AutoDig then
+         task.spawn(function()
+            while AutoDig do
+               local currentStamina = GetStaminaValues()
+
+               if not DigRoundStarted then
+                  DigStartRound:FireServer()
+                  DigRoundStarted = true
+                  DigSquareIndex = 1
+                  task.wait(0.35)
+               elseif currentStamina and currentStamina < DigStaminaCost then
+                  task.wait(0.5)
+               else
+                  DigSquare:FireServer(DigSquareIndex)
+                  DigSquareIndex = DigSquareIndex + 1
+
+                  if DigSquareIndex > DigBoardSize then
+                     DigSquareIndex = 1
+                     DigRoundStarted = false
+                     task.wait(math.max(DigInterval, 1.2))
+                  else
+                     task.wait(DigInterval)
+                  end
+               end
+            end
+
+            DigSquareIndex = 1
+            DigRoundStarted = false
+         end)
+      end
+   end,
+})
+
 local PrestigeSection = RebirthTab:CreateSection("Ascension")
 local AscendLabel = RebirthTab:CreateLabel("Ascension Upgrades")
 local AbundanceAscend = false
 local AscendToggle = RebirthTab:CreateToggle({
-    Name = "Abundance Ascension",
-    CurrentValue = false,
-    Flag = "AutoAscend",
-    Callback = function(abundance)
-        AbundanceAscend = abundance
-        if AbundanceAscend then
-            task.spawn(function()
-                while AbundanceAscend do
-                    PerformAscension:FireServer("abundance")
-                    task.wait(60)
-                end
-            end)
-        end
-    end,
+   Name = "Abundance Ascension",
+   CurrentValue = false,
+   Flag = "AutoAscend",
+   Callback = function(abundance)
+      AbundanceAscend = abundance
+      if AbundanceAscend then
+         task.spawn(function()
+            while AbundanceAscend do
+               PerformAscension:FireServer("abundance")
+               task.wait(60)
+            end
+         end)
+      end
+   end,
 })
 
 local PrestigeAscend = false
@@ -270,25 +386,24 @@ local Divider = RebirthTab:CreateSection("Prestige")
 local PrestigeLabel = RebirthTab:CreateLabel("Auto Prestige")
 local Prestiging = false
 local AutoPrestigeToggle = RebirthTab:CreateToggle({
-    Name = "Auto Prestige (32s)",
-    CurrentValue = false,
-    Flag = "AutoPrestigeToggle",
-    Callback = function(APrestige)
-        Prestiging = APrestige
-        if Prestiging then
-            task.spawn(function()
-                while Prestiging do
-                    PerformPrestige:FireServer()
-
-                    task.wait(32)
-                end
-            end)
-        end
-    end,
+   Name = "Auto Prestige (32s)",
+   CurrentValue = false,
+   Flag = "AutoPrestigeToggle",
+   Callback = function(APrestige)
+      Prestiging = APrestige
+      if Prestiging then
+         task.spawn(function()
+            while Prestiging do
+               PerformPrestige:FireServer()
+               task.wait(32)
+            end
+         end)
+      end
+   end,
 })
 
-local Section = MacroTab:CreateSection("Prestige Macro 15-30")
-local StableMacroLabel = MacroTab:CreateLabel("Stable Macro")
+local MacroSection = MacroTab:CreateSection("Core Macros")
+local MacroLabel = MacroTab:CreateLabel("Progression / SuperHuman")
 
 local MPrestige = PerformPrestige
 local MGoldenSell = SellGoldenPotatoes
@@ -297,115 +412,6 @@ local MEnergy = PurchaseClickUpgrade
 local MOmni = PurchaseClickUpgrade
 local MHarvest = PurchaseClickUpgrade
 local MGalactic = PurchaseClickUpgrade
-
-local macroing = false
-local MacroV1Toggle = MacroTab:CreateToggle({
-    Name = "Macro V1",
-    CurrentValue = false,
-    Flag = "MacroV1",
-    Callback = function(MacroV1)
-        macroing = MacroV1
-
-        task.spawn(function()
-            while macroing do
-                MPrestige:FireServer()
-                task.wait(5)
-                  
-                MGoldenSell:FireServer(200_000)
-                task.wait(0.5)
-                  
-                MWisdom:FireServer("grandfathers_wisdom")
-                task.wait(0.5)
-                  
-                MGoldenSell:FireServer(1_000_000)
-                task.wait(1)
-
-                MWisdom:FireServer("grandfathers_wisdom")
-                task.wait(2)
-
-                MGoldenSell:FireServer(28_000_000)
-                task.wait(1)
-
-                MEnergy:FireServer("infinite_energy")
-                task.wait(1)
-                  
-                MGoldenSell:FireServer(100_000_000)
-                MEnergy:FireServer("infinite_energy")
-                task.wait(3)
-               
-                MGoldenSell:FireServer(300_000_000)
-                MEnergy:FireServer("infinite_energy")
-                task.wait(3)
-
-                MGoldenSell:FireServer(1_000_000_000)
-                MOmni:FireServer("omnipotato_blessing")
-                task.wait(4)
-                  
-                MGoldenSell:FireServer(1_800_000_000)
-                MOmni:FireServer("omnipotato_blessing")
-                task.wait(8)
-
-                MGoldenSell:FireServer(14_000_000_000)
-                task.wait(1)
-            end
-        end)
-    end,
-})
-
-local ksmacro = false
-
-local MacroV1Toggle = MacroTab:CreateToggle({
-    Name = "KS Macro V1",
-    CurrentValue = false,
-    Flag = "KSMacroV1",
-    Callback = function(KSMacro1)
-        ksmacro = KSMacro1
-
-        task.spawn(function()
-            while ksmacro do
-                MPrestige:FireServer()
-                task.wait(5)
-                  
-                MGoldenSell:FireServer(200_000)
-                task.wait(0.5)
-                  
-                MWisdom:FireServer("grandfathers_wisdom")
-                task.wait(0.5)
-                  
-                MGoldenSell:FireServer(1_000_000)
-                task.wait(1)
-
-                MWisdom:FireServer("grandfathers_wisdom")
-                task.wait(2)
-
-                MGoldenSell:FireServer(28_000_000)
-                task.wait(1)
-
-                MEnergy:FireServer("infinite_energy")
-                task.wait(1)
-                  
-                MGoldenSell:FireServer(100_000_000)
-                MEnergy:FireServer("infinite_energy")
-                task.wait(3)
-               
-                MGoldenSell:FireServer(300_000_000)
-                MEnergy:FireServer("infinite_energy")
-                task.wait(3)
-
-                MGoldenSell:FireServer(1_000_000_000)
-                MOmni:FireServer("omnipotato_blessing")
-                task.wait(4)
-                  
-                MGoldenSell:FireServer(1_800_000_000)
-                MOmni:FireServer("omnipotato_blessing")
-                task.wait(8)
-
-                MGoldenSell:FireServer(8_000_000_000)
-                task.wait(1)
-            end
-        end)
-    end,
-})
 
 local SuperHumanMacroDivider = MacroTab:CreateSection("SuperHuman Macro")
 local SuperHumanMacroLabel = MacroTab:CreateLabel("SuperHuman Macro")
@@ -498,23 +504,14 @@ local MacroV1Toggle = MacroTab:CreateToggle({
 local ProgressionMacroDivider = MacroTab:CreateSection("Progression Macro")
 local ProgressionMacroLabel = MacroTab:CreateLabel("Progression Macro")
 local progressionmacro = false
-local ProgressionMacroPlan = {
-    {"prestige", nil, 2.5},
-    {"gold_sell", 200_000, 0.1},
-    {"upgrade", "grandfathers_wisdom", 0.4},
-    {"gold_sell", 1_000_000, 0.1},
-    {"upgrade", "grandfathers_wisdom", 0.8},
-    {"gold_sell", 30_000_000, 0.1},
-    {"upgrade", "infinite_energy", 0.6},
-    {"gold_sell", 300_000_000, 0.1},
-    {"upgrade", "infinite_energy", 0.6},
-    {"gold_sell", 1_500_000_000, 0.1},
-    {"upgrade", "omnipotato_blessing", 0.8},
-    {"gold_sell", 8_000_000_000, 0.1},
-    {"upgrade", "transcendent_harvest", 0.8},
-    {"gold_sell", 40_000_000_000, 0.1},
-    {"upgrade", "galactic_harvest", 4}
+local ProgressionCoreUpgradeOrder = {
+    "grandfathers_wisdom",
+    "infinite_energy",
+    "omnipotato_blessing",
+    "transcendent_harvest",
+    "galactic_harvest"
 }
+local ProgressionSellDelay = 20
 local ProgressionMacroToggle = MacroTab:CreateToggle({
     Name = "Progression Macro V1",
     CurrentValue = false,
@@ -524,6 +521,8 @@ local ProgressionMacroToggle = MacroTab:CreateToggle({
 
         if progressionmacro then
             task.spawn(function()
+                local lastSellAt = os.clock()
+
                 while progressionmacro do
                     for _, upgrade in ipairs(AutoUpgradeOrder) do
                         if not progressionmacro then
@@ -534,121 +533,40 @@ local ProgressionMacroToggle = MacroTab:CreateToggle({
                         task.wait(0.15)
                     end
 
-                    for _, step in ipairs(ProgressionMacroPlan) do
+                    for _, upgrade in ipairs(ProgressionCoreUpgradeOrder) do
                         if not progressionmacro then
                             break
                         end
 
-                        local action, value, delay = unpack(step)
-
-                        if action == "prestige" then
-                            PerformPrestige:FireServer()
-                        elseif action == "gold_sell" then
-                            SellGoldenPotatoes:FireServer(value)
-                        elseif action == "upgrade" then
-                            PurchaseClickUpgrade:FireServer(value)
-                        end
-
-                        task.wait(delay)
+                        PurchaseClickUpgrade:FireServer(upgrade)
+                        task.wait(0.3)
                     end
 
-                    if progressionmacro and PotatoAmount > 0 then
-                        SellPotatoes:FireServer(PotatoAmount)
-                        task.wait(math.max(PotatoDelay, 0.2))
+                    local now = os.clock()
+                    if now - lastSellAt >= ProgressionSellDelay then
+                        if PotatoCountLabel then
+                            local potatoes = ParseCurrencyAmount(PotatoCountLabel.Text)
+                            if potatoes > 0 then
+                                SellPotatoes:FireServer(potatoes)
+                            end
+                        end
+
+                        if GoldenCountLabel then
+                            local gold = ParseCurrencyAmount(GoldenCountLabel.Text)
+                            if gold > 0 then
+                                SellGoldenPotatoes:FireServer(gold)
+                            end
+                        end
+
+                        PerformPrestige:FireServer()
+                        lastSellAt = now
+                        task.wait(1)
+                    else
+                        task.wait(0.5)
                     end
                 end
             end)
         end
-    end,
-})
-
-local GeneratorMacroDivider = MacroTab:CreateSection("Generator Macro")
-local GeneratorMacroLabel = MacroTab:CreateLabel("Generator Macro")
-
-local generatorfarm = false
-local GeneratorMacroV1Toggle = MacroTab:CreateToggle({
-    Name = "Generator Farm V1",
-    CurrentValue = false,
-    Flag = "GeneratorFarmV1",
-    Callback = function(GenFarmV1)
-        generatorfarm = GenFarmV1
-
-        task.spawn(function()
-            while generatorfarm do
-                PerformPrestige:FireServer()
-                task.wait(1)
-                  
-                SellGoldenPotatoes:FireServer(4_400_000)
-                task.wait(0.05)
-                  
-                PurchaseGenerator:FireServer("dimensional_mirror")
-                task.wait(0.5)
-                  
-                SellGoldenPotatoes:FireServer(460_000_000)
-                task.wait(0.05)
-
-                PurchaseGenerator:FireServer("temporal_harvester")
-                task.wait(3)
-
-                SellGoldenPotatoes:FireServer(100_000_000_000)
-                task.wait(0.05)
-
-                PurchaseGenerator:FireServer("superfactory_number_67")
-                task.wait(1.8)
-
-                SellGoldenPotatoes:FireServer(1_200_000_000_000)
-                task.wait(0.05)
-
-                PurchaseGenerator:FireServer("potato_nexus")
-                task.wait(3.4)
-
-                SellGoldenPotatoes:FireServer(20_000_000_000_000)
-                task.wait(0.05)
-
-                PurchaseGenerator:FireServer("omnipotato")
-                task.wait(0.8)
-
-                SellGoldenPotatoes:FireServer(30_000_000_000_000)
-                task.wait(0.05)
-
-                PurchaseGenerator:FireServer("omnipotato")
-                task.wait(3.8)
-
-                SellGoldenPotatoes:FireServer(300_000_000_000_000)
-                task.wait(0.05)
-
-                PurchaseGenerator:FireServer("double_omnipotato")
-                task.wait(2)
-
-                SellGoldenPotatoes:FireServer(800_000_000_000_000)
-                task.wait(0.05)
-
-                PurchaseGenerator:FireServer("double_omnipotato")
-                task.wait(4)
-
-                SellGoldenPotatoes:FireServer(5_000_000_000_000_000)
-                task.wait(0.05)
-
-                PurchaseGenerator:FireServer("infinite_omnipotato")
-                task.wait(1)
-
-                SellGoldenPotatoes:FireServer(8_000_000_000_000_000)
-                task.wait(0.05)
-
-                PurchaseGenerator:FireServer("infinite_omnipotato")
-                task.wait(3.4)
-
-                SellGoldenPotatoes:FireServer(50_000_000_000_000_000)
-                task.wait(0.05)
-
-                PurchaseGenerator:FireServer("potato_infinite_universe")
-                task.wait(7)
-
-                SellGoldenPotatoes:FireServer(2_000_000_000_000_000_000)
-                task.wait(0.10)
-
-            end
-        end)
     end,
 })
 
