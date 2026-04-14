@@ -280,9 +280,12 @@ local DigLabel = DigTab:CreateLabel("Smart Auto Dig")
 local AutoDig = false
 local DigSquareIndex = 1
 local DigRoundStarted = false
+local DigGridColumns = 6
+local DigGridRows = 3
 local DigInterval = 1.1
+local DigRegenDelay = 1.5
 local DigStaminaCost = 5
-local DigBoardSize = 18
+local DigBoardSize = DigGridColumns * DigGridRows
 local AutoDigToggle = DigTab:CreateToggle({
    Name = "Auto Dig",
    CurrentValue = false,
@@ -293,15 +296,17 @@ local AutoDigToggle = DigTab:CreateToggle({
       if AutoDig then
          task.spawn(function()
             while AutoDig do
-               local currentStamina = GetStaminaValues()
+               local currentStamina, maxStamina = GetStaminaValues()
 
-               if not DigRoundStarted then
+               if currentStamina and maxStamina and currentStamina <= 0 then
+                  task.wait(DigRegenDelay)
+               elseif not DigRoundStarted then
                   DigStartRound:FireServer()
                   DigRoundStarted = true
                   DigSquareIndex = 1
                   task.wait(0.35)
                elseif currentStamina and currentStamina < DigStaminaCost then
-                  task.wait(0.5)
+                  task.wait(DigRegenDelay)
                else
                   DigSquare:FireServer(DigSquareIndex)
                   DigSquareIndex = DigSquareIndex + 1
