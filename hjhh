@@ -117,6 +117,66 @@ local function GetStaminaValues()
    return ParseCurrencyAmount(currentText), ParseCurrencyAmount(maxText)
 end
 
+local function GetGoldenCountLabel()
+   if not GoldenCountLabel or not GoldenCountLabel.Parent then
+      GoldenCountLabel = FindCurrencyLabel({"GoldenRow"}, {"GoldenCount"})
+   end
+
+   return GoldenCountLabel
+end
+
+local function GetPotatoCountLabel()
+   if not PotatoCountLabel or not PotatoCountLabel.Parent then
+      PotatoCountLabel = FindCurrencyLabel({"PotatoRow", "PotatoesRow", "NormalRow"}, {"PotatoCount", "Count"})
+   end
+
+   return PotatoCountLabel
+end
+
+local ActiveLoops = {}
+
+local function StartManagedLoop(loopName, isRunning, tickFn, errorDelay)
+   if ActiveLoops[loopName] then
+      return
+   end
+
+   ActiveLoops[loopName] = true
+   task.spawn(function()
+      while isRunning() do
+         local ok, waitTime = pcall(tickFn)
+         if ok then
+            if type(waitTime) == "number" and waitTime > 0 then
+               task.wait(waitTime)
+            end
+         else
+            task.wait(errorDelay or 1)
+         end
+      end
+
+      ActiveLoops[loopName] = nil
+   end)
+end
+
+local function SellCurrentGoldenPotatoes()
+   local goldenLabel = GetGoldenCountLabel()
+   if goldenLabel then
+      local gold = ParseCurrencyAmount(goldenLabel.Text)
+      if gold > 0 then
+         SellGoldenPotatoes:FireServer(gold)
+      end
+   end
+end
+
+local function SellCurrentPotatoes()
+   local potatoLabel = GetPotatoCountLabel()
+   if potatoLabel then
+      local potatoes = ParseCurrencyAmount(potatoLabel.Text)
+      if potatoes > 0 then
+         SellPotatoes:FireServer(potatoes)
+      end
+   end
+end
+
 local Amount = 1
 local Delay = 1
 local Running = false
@@ -145,13 +205,12 @@ local AutoSellToggle = SellTab:CreateToggle({
       Running = Value
 
       if Running then
-         task.spawn(function()
-            while Running do
-               SellGoldenPotatoes:FireServer(Amount)
-
-               task.wait(Delay)
-            end
-         end)
+         StartManagedLoop("AutoSellGoldAmount", function()
+            return Running
+         end, function()
+            SellGoldenPotatoes:FireServer(Amount)
+            return Delay
+         end, 1)
       end
    end,
 })
@@ -169,18 +228,15 @@ local SellAllToggle = SellTab:CreateToggle({
    end,
 })
 
-task.spawn(function()
-   while true do
-      if selling and GoldenCountLabel then
-         local gold = ParseCurrencyAmount(GoldenCountLabel.Text)
-         if gold > 0 then
-            SellGoldenPotatoes:FireServer(gold)
-         end
-
-      end
-      task.wait(0.15)
+StartManagedLoop("AutoSellGoldenAll", function()
+   return true
+end, function()
+   if selling then
+      SellCurrentGoldenPotatoes()
    end
-end)
+
+   return 0.15
+end, 0.5)
 
 local PotatoDelay = 20
 local PotatoSelling = false
@@ -201,18 +257,12 @@ local AutoSellPotatoesToggle = SellTab:CreateToggle({
       PotatoSelling = Value
 
       if PotatoSelling then
-         task.spawn(function()
-            while PotatoSelling do
-               if PotatoCountLabel then
-                  local potatoes = ParseCurrencyAmount(PotatoCountLabel.Text)
-                  if potatoes > 0 then
-                     SellPotatoes:FireServer(potatoes)
-                  end
-               end
-
-               task.wait(PotatoDelay)
-            end
-         end)
+         StartManagedLoop("AutoSellPotatoes", function()
+            return PotatoSelling
+         end, function()
+            SellCurrentPotatoes()
+            return PotatoDelay
+         end, 1)
       end
    end,
 })
@@ -226,13 +276,14 @@ local AutoClickToggle = AutoTab:CreateToggle({
    Callback = function(Clicks)
       Clicking = Clicks
 
-      task.spawn(function()
-         while Clicking do
+      if Clicking then
+         StartManagedLoop("AutoClick", function()
+            return Clicking
+         end, function()
             PerformClick:FireServer()
-
-            task.wait(0.005)
-         end
-      end)
+            return 0.005
+         end, 0.25)
+      end
    end,
 })
 
@@ -260,20 +311,20 @@ local AutoUpgradeToggle = UpgradeTab:CreateToggle({
       AutoUpgradeLoop = Value
 
       if AutoUpgradeLoop then
-         task.spawn(function()
-            while AutoUpgradeLoop do
-               for _, upgrade in ipairs(AutoUpgradeOrder) do
-                  if not AutoUpgradeLoop then
-                     break
-                  end
-
-                  PurchaseClickUpgrade:FireServer(upgrade)
-                  task.wait(0.2)
+         StartManagedLoop("AutoUpgradeLoop", function()
+            return AutoUpgradeLoop
+         end, function()
+            for _, upgrade in ipairs(AutoUpgradeOrder) do
+               if not AutoUpgradeLoop then
+                  break
                end
 
-               task.wait(1)
+               PurchaseClickUpgrade:FireServer(upgrade)
+               task.wait(0.2)
             end
-         end)
+
+            return 1
+         end, 1)
       end
    end,
 })
@@ -296,29 +347,29 @@ local AutoDigToggle = DigTab:CreateToggle({
       AutoDig = Value
 
       if AutoDig then
-         task.spawn(function()
-            while AutoDig do
-               local currentStamina, maxStamina = GetStaminaValues()
+         StartManagedLoop("AutoDig", function()
+            return AutoDig
+         end, function()
+            local currentStamina, maxStamina = GetStaminaValues()
 
-               if currentStamina and maxStamina and currentStamina <= 0 then
-                  task.wait(DigRegenDelay)
-               elseif currentStamina and currentStamina < DigStaminaCost then
-                  task.wait(DigRegenDelay)
-               else
-                  DigSquare:FireServer(DigSquareIndex)
-                  DigSquareIndex = DigSquareIndex + 1
-
-                  if DigSquareIndex > DigBoardSize then
-                     DigSquareIndex = 1
-                     task.wait(math.max(DigInterval, 1.2))
-                  else
-                     task.wait(DigInterval)
-                  end
-               end
+            if currentStamina and maxStamina and currentStamina <= 0 then
+               return DigRegenDelay
+            elseif currentStamina and currentStamina < DigStaminaCost then
+               return DigRegenDelay
             end
 
-            DigSquareIndex = 1
-         end)
+            DigSquare:FireServer(DigSquareIndex)
+            DigSquareIndex = DigSquareIndex + 1
+
+            if DigSquareIndex > DigBoardSize then
+               DigSquareIndex = 1
+               return math.max(DigInterval, 1.2)
+            end
+
+            return DigInterval
+         end, 1)
+      else
+         DigSquareIndex = 1
       end
    end,
 })
@@ -333,12 +384,12 @@ local AscendToggle = RebirthTab:CreateToggle({
    Callback = function(abundance)
       AbundanceAscend = abundance
       if AbundanceAscend then
-         task.spawn(function()
-            while AbundanceAscend do
-               PerformAscension:FireServer("abundance")
-               task.wait(60)
-            end
-         end)
+         StartManagedLoop("AbundanceAscension", function()
+            return AbundanceAscend
+         end, function()
+            PerformAscension:FireServer("abundance")
+            return 60
+         end, 2)
       end
    end,
 })
@@ -353,13 +404,12 @@ local PrestigeAscendToggle = RebirthTab:CreateToggle({
       PrestigeAscend = PrestigeA
 
       if PrestigeAscend then
-         task.spawn(function()
-            while PrestigeAscend do
-               PerformAscension:FireServer("prestige")
-
-               task.wait(60)
-            end
-         end)
+         StartManagedLoop("PrestigeAscension", function()
+            return PrestigeAscend
+         end, function()
+            PerformAscension:FireServer("prestige")
+            return 60
+         end, 2)
       end
    end,
 })
@@ -372,12 +422,12 @@ local ThriftyAscendToggle = RebirthTab:CreateToggle({
    Callback = function(ThriftyAscend)
       ThriftAscend = ThriftyAscend
       if ThriftAscend then
-         task.spawn(function()
-            while ThriftAscend do
-               PerformAscension:FireServer("thrifty")
-               task.wait(60)
-            end
-         end)
+         StartManagedLoop("ThriftyAscension", function()
+            return ThriftAscend
+         end, function()
+            PerformAscension:FireServer("thrifty")
+            return 60
+         end, 2)
       end
    end,
 })
@@ -392,12 +442,12 @@ local AutoPrestigeToggle = RebirthTab:CreateToggle({
    Callback = function(APrestige)
       Prestiging = APrestige
       if Prestiging then
-         task.spawn(function()
-            while Prestiging do
-               PerformPrestige:FireServer()
-               task.wait(32)
-            end
-         end)
+         StartManagedLoop("AutoPrestige", function()
+            return Prestiging
+         end, function()
+            PerformPrestige:FireServer()
+            return 32
+         end, 2)
       end
    end,
 })
@@ -463,13 +513,16 @@ local MacroV1Toggle = MacroTab:CreateToggle({
 
     Callback = function(superhumanmacrov1)
         superhumanmacro = superhumanmacrov1
-        task.spawn(function()
-            while superhumanmacro do
+        if superhumanmacro then
+            StartManagedLoop("SuperHumanMacro", function()
+                return superhumanmacro
+            end, function()
+                for _, step in ipairs(SuperMacroV1) do
+                    if not superhumanmacro then
+                        break
+                    end
 
-                for _,step in ipairs(SuperMacroV1) do
-                    if not superhumanmacro then break end
-
-                    local action,value,delay = unpack(step)
+                    local action, value, delay = unpack(step)
 
                     if action == "prestige" then
                         MPrestige:FireServer()
@@ -495,15 +548,19 @@ local MacroV1Toggle = MacroTab:CreateToggle({
 
                     task.wait(delay)
                 end
-
-            end
-        end)
+            end, 1)
+        end
     end,
 })
 
 local ProgressionMacroDivider = MacroTab:CreateSection("Progression Macro")
 local ProgressionMacroLabel = MacroTab:CreateLabel("Progression Macro")
 local progressionmacro = false
+local ProgressionAscensionOrder = {
+    "abundance",
+    "prestige",
+    "thrifty"
+}
 local ProgressionCoreUpgradeOrder = {
     "grandfathers_wisdom",
     "infinite_energy",
@@ -512,6 +569,9 @@ local ProgressionCoreUpgradeOrder = {
     "galactic_harvest"
 }
 local ProgressionSellDelay = 20
+local ProgressionAscensionDelay = 60
+local ProgressionLastSellAt = 0
+local ProgressionLastAscensionAt = 0
 local ProgressionMacroToggle = MacroTab:CreateToggle({
     Name = "Progression Macro V1",
     CurrentValue = false,
@@ -520,52 +580,54 @@ local ProgressionMacroToggle = MacroTab:CreateToggle({
         progressionmacro = Value
 
         if progressionmacro then
-            task.spawn(function()
-                local lastSellAt = os.clock()
-
-                while progressionmacro do
-                    for _, upgrade in ipairs(AutoUpgradeOrder) do
-                        if not progressionmacro then
-                            break
-                        end
-
-                        PurchaseClickUpgrade:FireServer(upgrade)
-                        task.wait(0.15)
+            ProgressionLastSellAt = os.clock()
+            ProgressionLastAscensionAt = os.clock()
+            StartManagedLoop("ProgressionMacroV1", function()
+                return progressionmacro
+            end, function()
+                for _, upgrade in ipairs(AutoUpgradeOrder) do
+                    if not progressionmacro then
+                        break
                     end
 
-                    for _, upgrade in ipairs(ProgressionCoreUpgradeOrder) do
-                        if not progressionmacro then
-                            break
-                        end
-
-                        PurchaseClickUpgrade:FireServer(upgrade)
-                        task.wait(0.3)
-                    end
-
-                    local now = os.clock()
-                    if now - lastSellAt >= ProgressionSellDelay then
-                        if PotatoCountLabel then
-                            local potatoes = ParseCurrencyAmount(PotatoCountLabel.Text)
-                            if potatoes > 0 then
-                                SellPotatoes:FireServer(potatoes)
-                            end
-                        end
-
-                        if GoldenCountLabel then
-                            local gold = ParseCurrencyAmount(GoldenCountLabel.Text)
-                            if gold > 0 then
-                                SellGoldenPotatoes:FireServer(gold)
-                            end
-                        end
-
-                        PerformPrestige:FireServer()
-                        lastSellAt = now
-                        task.wait(1)
-                    else
-                        task.wait(0.5)
-                    end
+                    PurchaseClickUpgrade:FireServer(upgrade)
+                    task.wait(0.15)
                 end
-            end)
+
+                for _, upgrade in ipairs(ProgressionCoreUpgradeOrder) do
+                    if not progressionmacro then
+                        break
+                    end
+
+                    PurchaseClickUpgrade:FireServer(upgrade)
+                    task.wait(0.3)
+                end
+
+                local now = os.clock()
+                if now - ProgressionLastSellAt >= ProgressionSellDelay then
+                    SellCurrentPotatoes()
+                    SellCurrentGoldenPotatoes()
+                    PerformPrestige:FireServer()
+                    ProgressionLastSellAt = now
+
+                    if now - ProgressionLastAscensionAt >= ProgressionAscensionDelay then
+                        for _, ascension in ipairs(ProgressionAscensionOrder) do
+                            if not progressionmacro then
+                                break
+                            end
+
+                            PerformAscension:FireServer(ascension)
+                            task.wait(0.25)
+                        end
+
+                        ProgressionLastAscensionAt = now
+                    end
+
+                    return 1
+                end
+
+                return 0.5
+            end, 1)
         end
     end,
 })
@@ -576,7 +638,7 @@ local NoNotifToggle = MiscTab:CreateToggle({
    CurrentValue = false,
    Flag = "DisableNotifications",
    Callback = function(DisableNotifications)
-		NotificationContainer.Visible = not DisableNotifications
+      NotificationContainer.Visible = not DisableNotifications
    end,
 })
 
@@ -589,61 +651,69 @@ local GeneratorFarmToggle = MiscTab:CreateToggle({
    Callback = function(GFarm)
       GeneratorFarm = GFarm
 
-      task.spawn(function()
-         while GeneratorFarm do
+      if GeneratorFarm then
+         StartManagedLoop("GeneratorFarm", function()
+            return GeneratorFarm
+         end, function()
             PurchaseGenerator:FireServer("potato_seedling")
             DeleteGenerator:FireServer("potato_seedling")
-            task.wait(0.05)
-         end
-      end)
+            return 0.05
+         end, 1)
+      end
    end,
 })
 
-local autobuy = false
+local AutoBuyProductionPotion = false
 local ProductionAutoBuyToggle = ShopTab:CreateToggle({
    Name = "Production AutoBuy",
    CurrentValue = false,
    Flag = "ProductionAutoBuy",
    Callback = function(ProductionPotion)
       AutoBuyProductionPotion = ProductionPotion
-      task.spawn(function()
-         while AutoBuyProductionPotion do
+      if AutoBuyProductionPotion then
+         StartManagedLoop("ProductionAutoBuy", function()
+            return AutoBuyProductionPotion
+         end, function()
             PurchaseShopPotato:FireServer("potion_production")
-            task.wait(60)
-         end
-      end)
+            return 60
+         end, 2)
+      end
    end,
 })
 
-local autobuyluck = false
+local AutoBuyLuckPotion = false
 local LuckAutoBuyToggle = ShopTab:CreateToggle({
    Name = "Luck AutoBuy",
    CurrentValue = false,
    Flag = "LuckAutoBuy",
    Callback = function(LuckPotion)
       AutoBuyLuckPotion = LuckPotion
-      task.spawn(function()
-         while AutoBuyLuckPotion do
+      if AutoBuyLuckPotion then
+         StartManagedLoop("LuckAutoBuy", function()
+            return AutoBuyLuckPotion
+         end, function()
             PurchaseShopPotato:FireServer("potion_luck")
-            task.wait(60)
-         end
-      end)
+            return 60
+         end, 2)
+      end
    end,
 })
 
-local autobuygolden = false
+local AutoBuyGoldenPotion = false
 local GoldenAutoBuyToggle = ShopTab:CreateToggle({
    Name = "GoldenAutoBuy",
    CurrentValue = false,
    Flag = "GoldenAutoBuy",
    Callback = function(GoldenPotion)
       AutoBuyGoldenPotion = GoldenPotion
-      task.spawn(function()
-         while AutoBuyGoldenPotion do
+      if AutoBuyGoldenPotion then
+         StartManagedLoop("GoldenAutoBuy", function()
+            return AutoBuyGoldenPotion
+         end, function()
             PurchaseShopPotato:FireServer("potion_golden")
-            task.wait(60)
-         end
-      end)
+            return 60
+         end, 2)
+      end
    end,
 })
 local AutoBuyClickPotion = false
@@ -653,12 +723,14 @@ local ClickAutoBuyToggle = ShopTab:CreateToggle({
    Flag = "ClickAutoBuy",
    Callback = function(ClickPotion)
       AutoBuyClickPotion = ClickPotion
-      task.spawn(function()
-         while AutoBuyClickPotion do
+      if AutoBuyClickPotion then
+         StartManagedLoop("ClickAutoBuy", function()
+            return AutoBuyClickPotion
+         end, function()
             PurchaseShopPotato:FireServer("potion_click")
-            task.wait(60)
-         end
-      end)
+            return 60
+         end, 2)
+      end
    end,
 })
 
