@@ -261,7 +261,7 @@ end, function()
    return 0.15
 end, 0.5)
 
-local PotatoDelay = 20
+local PotatoDelay = 10
 local PotatoSelling = false
 local PotatoSellLabel = SellTab:CreateLabel("Auto Sell Potatoes")
 local PotatoDelayInput = SellTab:CreateInput({
