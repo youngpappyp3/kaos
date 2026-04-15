@@ -376,6 +376,8 @@ local AutoDigToggle = DigTab:CreateToggle({
 
 local PrestigeSection = RebirthTab:CreateSection("Ascension")
 local AscendLabel = RebirthTab:CreateLabel("Ascension Upgrades")
+local MacroAscensionOrder = {"abundance", "prestige", "thrifty"}
+local MacroAscensionIndex = 1
 local AbundanceAscend = false
 local AscendToggle = RebirthTab:CreateToggle({
    Name = "Abundance Ascension",
@@ -383,6 +385,7 @@ local AscendToggle = RebirthTab:CreateToggle({
    Flag = "AutoAscend",
    Callback = function(abundance)
       AbundanceAscend = abundance
+
       if AbundanceAscend then
          StartManagedLoop("AbundanceAscension", function()
             return AbundanceAscend
@@ -421,6 +424,7 @@ local ThriftyAscendToggle = RebirthTab:CreateToggle({
    Flag = "ThriftyAscension",
    Callback = function(ThriftyAscend)
       ThriftAscend = ThriftyAscend
+
       if ThriftAscend then
          StartManagedLoop("ThriftyAscension", function()
             return ThriftAscend
@@ -556,15 +560,10 @@ local MacroV1Toggle = MacroTab:CreateToggle({
 local ProgressionMacroDivider = MacroTab:CreateSection("Progression Macro")
 local ProgressionMacroLabel = MacroTab:CreateLabel("Progression Macro")
 local progressionmacro = false
-local ProgressionAscensionOrder = {
-    "abundance",
-    "prestige",
-    "thrifty"
-}
 local ProgressionCoreUpgradeOrder = {
-    "grandfathers_wisdom",
-    "infinite_energy",
-    "omnipotato_blessing",
+   "grandfathers_wisdom",
+   "infinite_energy",
+   "omnipotato_blessing",
     "transcendent_harvest",
     "galactic_harvest"
 }
@@ -605,25 +604,21 @@ local ProgressionMacroToggle = MacroTab:CreateToggle({
 
                 local now = os.clock()
                 if now - ProgressionLastSellAt >= ProgressionSellDelay then
-                    SellCurrentPotatoes()
-                    SellCurrentGoldenPotatoes()
-                    PerformPrestige:FireServer()
-                    ProgressionLastSellAt = now
+                  SellCurrentPotatoes()
+                  SellCurrentGoldenPotatoes()
+                  PerformPrestige:FireServer()
+                  ProgressionLastSellAt = now
 
-                    if now - ProgressionLastAscensionAt >= ProgressionAscensionDelay then
-                        for _, ascension in ipairs(ProgressionAscensionOrder) do
-                            if not progressionmacro then
-                                break
-                            end
+                  if now - ProgressionLastAscensionAt >= ProgressionAscensionDelay then
+                     PerformAscension:FireServer(MacroAscensionOrder[MacroAscensionIndex])
+                     MacroAscensionIndex = MacroAscensionIndex + 1
+                     if MacroAscensionIndex > #MacroAscensionOrder then
+                        MacroAscensionIndex = 1
+                     end
+                     ProgressionLastAscensionAt = now
+                  end
 
-                            PerformAscension:FireServer(ascension)
-                            task.wait(0.25)
-                        end
-
-                        ProgressionLastAscensionAt = now
-                    end
-
-                    return 1
+                  return 1
                 end
 
                 return 0.5
