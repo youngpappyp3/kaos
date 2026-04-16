@@ -4,157 +4,28 @@ if old then
     old:Destroy()
 end
 
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local VirtualUser = game:GetService("VirtualUser")
-local player = Players.LocalPlayer
-local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local SellPotatoes = Remotes:WaitForChild("SellPotatoes")
-local SellGoldenPotatoes = Remotes:WaitForChild("SellGoldenPotatoes")
-local PerformClick = Remotes:WaitForChild("PerformClick")
-local PerformAscension = Remotes:WaitForChild("PerformAscension")
-local PerformPrestige = Remotes:WaitForChild("PerformPrestige")
-local PurchaseClickUpgrade = Remotes:WaitForChild("PurchaseClickUpgrade")
-local PurchaseGenerator = Remotes:WaitForChild("PurchaseGenerator")
-local DeleteGenerator = Remotes:WaitForChild("DeleteGenerator")
-local PurchaseShopPotato = Remotes:WaitForChild("PurchaseShopPotato")
-local DigSquare = Remotes:WaitForChild("DigSquare")
+local Events = ReplicatedStorage:WaitForChild("Events", 9e9)
+local ClickEvent = Events:WaitForChild("ClickEvent", 9e9)
+local UpgradeEvent = Events:WaitForChild("UpgradeEvent", 9e9)
+local AntQueenFeedEvent = Events:WaitForChild("AntQueenFeedEvent", 9e9)
+local AscensionEvent = Events:WaitForChild("AscensionEvent", 9e9)
 
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
 local Window = Rayfield:CreateWindow({
-   Name = "Potato Script V3",
-   LoadingTitle = "Idle Potato Game",
+   Name = "Anti Incrementals",
+   LoadingTitle = "Anti Incrementals",
    LoadingSubtitle = "by Totemoflol",
    ConfigurationSaving = {
       Enabled = true,
       FolderName = nil,
-      FileName = "TatoHubConfig"
+      FileName = "AntiIncrementalsConfig"
    },
    KeySystem = false
 })
 
-local SellTab = Window:CreateTab("Sell", 4483362458)
 local AutoTab = Window:CreateTab("Auto", 4483362458)
-local RebirthTab = Window:CreateTab("Rebirths", 4483362458)
 local MacroTab = Window:CreateTab("Macro", 4483362458)
-local MiscTab = Window:CreateTab("Misc", 4483362458)
-local ShopTab = Window:CreateTab("Shop", 4483362458)
-local UpgradeTab = Window:CreateTab("Upgrades", 4483362458)
-local DigTab = Window:CreateTab("Dig", 4483362458)
-
-local PotatoGameGui = player.PlayerGui:WaitForChild("PotatoGameGUI")
-local CurrencyFrame = PotatoGameGui.Background.ClickerArea.ClickerContainer.CurrencyFrame
-
-local function ParseCurrencyAmount(text)
-   local sanitized = tostring(text or ""):gsub(",", ""):gsub("%s+", "")
-   local numericText, suffix = sanitized:match("([%-]?[%d%.]+)([A-Za-z]+)")
-   local amount = tonumber(numericText or sanitized:match("%-?[%d%.]+"))
-   if not amount then
-      return 0
-   end
-
-   if not suffix then
-      return amount
-   end
-
-   local multipliers = {
-      K = 1e3,
-      M = 1e6,
-      B = 1e9,
-      T = 1e12,
-      Qa = 1e15,
-      Qi = 1e18,
-      Sx = 1e21,
-      Sp = 1e24,
-      Oc = 1e27,
-      No = 1e30,
-      Dc = 1e33,
-   }
-
-   return amount * (multipliers[suffix] or 1)
-end
-
-local function FindCurrencyLabel(rowNames, countNames)
-   for _, rowName in ipairs(rowNames) do
-      local row = CurrencyFrame:FindFirstChild(rowName, true)
-      if row then
-         for _, countName in ipairs(countNames) do
-            local countLabel = row:FindFirstChild(countName, true)
-            if countLabel then
-               return countLabel
-            end
-         end
-
-         local fallbackLabel = row:FindFirstChildWhichIsA("TextLabel", true)
-         if fallbackLabel then
-            return fallbackLabel
-         end
-      end
-   end
-end
-
-local GoldenCountLabel = FindCurrencyLabel({"GoldenRow"}, {"GoldenCount"})
-local PotatoCountLabel = FindCurrencyLabel({"PotatoRow", "PotatoesRow", "NormalRow"}, {"PotatoCount", "Count"})
-
-local function FindStaminaLabel()
-   local preferredNames = {
-      "StaminaValue",
-      "StaminaLabel",
-      "StaminaText",
-      "CurrentStamina"
-   }
-
-   for _, name in ipairs(preferredNames) do
-      local label = PotatoGameGui:FindFirstChild(name, true)
-      if label and label:IsA("TextLabel") then
-         return label
-      end
-   end
-
-   for _, descendant in ipairs(PotatoGameGui:GetDescendants()) do
-      if descendant:IsA("TextLabel") then
-         local text = tostring(descendant.Text or "")
-         if text:match("^%s*[%d,%.]+%s*/%s*[%d,%.]+%s*$") then
-            return descendant
-         end
-      end
-   end
-end
-
-local StaminaLabel = FindStaminaLabel()
-
-local function GetStaminaValues()
-   if not StaminaLabel or not StaminaLabel.Parent then
-      StaminaLabel = FindStaminaLabel()
-   end
-
-   if not StaminaLabel then
-      return nil, nil
-   end
-
-   local currentText, maxText = tostring(StaminaLabel.Text or ""):match("([%d,%.]+)%s*/%s*([%d,%.]+)")
-   if not currentText or not maxText then
-      return nil, nil
-   end
-
-   return ParseCurrencyAmount(currentText), ParseCurrencyAmount(maxText)
-end
-
-local function GetGoldenCountLabel()
-   if not GoldenCountLabel or not GoldenCountLabel.Parent then
-      GoldenCountLabel = FindCurrencyLabel({"GoldenRow"}, {"GoldenCount"})
-   end
-
-   return GoldenCountLabel
-end
-
-local function GetPotatoCountLabel()
-   if not PotatoCountLabel or not PotatoCountLabel.Parent then
-      PotatoCountLabel = FindCurrencyLabel({"PotatoRow", "PotatoesRow", "NormalRow"}, {"PotatoCount", "Count"})
-   end
-
-   return PotatoCountLabel
-end
 
 local ActiveLoops = {}
 
@@ -180,592 +51,216 @@ local function StartManagedLoop(loopName, isRunning, tickFn, errorDelay)
    end)
 end
 
-local function SellCurrentGoldenPotatoes()
-   local goldenLabel = GetGoldenCountLabel()
-   if goldenLabel then
-      local gold = ParseCurrencyAmount(goldenLabel.Text)
-      if gold > 0 then
-         SellGoldenPotatoes:FireServer(gold)
-      end
+local UpgradePurchaseAmount = 1
+local FeedAmount = 10
+local PriorityUpgradeIds = {
+   "FireAnt",
+   "AntQueen",
+   "DoubleAnt",
+   "WorkerAnt"
+}
+local SecondaryUpgradeIds = {
+   "MegaClick",
+   "PowerClick",
+   "SharpClick",
+   "SwiftClick",
+   "BasicClick"
+}
+local AscensionUpgradeOrder = {
+   "AscTokens",
+   "AscCoins",
+   "AscPerSecond",
+   "AscRuneBulk",
+   "RuneLuck",
+   "AscDamage",
+   "AscHealth"
+}
+
+local function FireClick()
+   local args = {}
+   ClickEvent:FireServer(unpack(args))
+end
+
+local function FireUpgradeBatch()
+   local upgrades = {}
+
+   for _, upgradeId in ipairs(PriorityUpgradeIds) do
+      upgrades[#upgrades + 1] = {
+         Id = upgradeId,
+         Amount = UpgradePurchaseAmount,
+      }
+   end
+
+   for _, upgradeId in ipairs(SecondaryUpgradeIds) do
+      upgrades[#upgrades + 1] = {
+         Id = upgradeId,
+         Amount = UpgradePurchaseAmount,
+      }
+   end
+
+   local args = {
+      upgrades,
+   }
+
+   UpgradeEvent:FireServer(unpack(args))
+end
+
+local function FeedQueen(amount)
+   local args = {
+      "Feed",
+      amount,
+   }
+
+   AntQueenFeedEvent:FireServer(unpack(args))
+end
+
+local function Ascend()
+   local args = {
+      "Ascend",
+   }
+
+   AscensionEvent:FireServer(unpack(args))
+end
+
+local function BuyAscensionUpgrade(upgradeId)
+   local args = {
+      "BuyUpgrade",
+      upgradeId,
+      1,
+   }
+
+   AscensionEvent:FireServer(unpack(args))
+end
+
+local function BuyAscensionUpgradeOrder()
+   for _, upgradeId in ipairs(AscensionUpgradeOrder) do
+      BuyAscensionUpgrade(upgradeId)
+      task.wait(0.05)
    end
 end
 
-local function SellCurrentPotatoes()
-   local potatoLabel = GetPotatoCountLabel()
-   if potatoLabel then
-      local potatoes = ParseCurrencyAmount(potatoLabel.Text)
-      if potatoes > 0 then
-         SellPotatoes:FireServer(potatoes)
-      end
-   end
-end
-
-local Amount = 1
-local Delay = 1
-local Running = false
-local Label = SellTab:CreateLabel("Auto Sell")
-local AmountInput = SellTab:CreateInput({
-   Name = "Amount Of Gold Potatoes",
-   PlaceholderText = "Enter Amount",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Value)
-      Amount = tonumber(Value) or 0
-   end,
-})
-local DelayInput = SellTab:CreateInput({
-   Name = "Delay (seconds)",
-   PlaceholderText = "Enter Delay",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Value)
-      Delay = tonumber(Value) or 0
-   end,
-})
-local AutoSellToggle = SellTab:CreateToggle({
-   Name = "Auto Sell",
-   CurrentValue = false,
-   Flag = "AutoSellToggle",
-   Callback = function(Value)
-      Running = Value
-
-      if Running then
-         StartManagedLoop("AutoSellGoldAmount", function()
-            return Running
-         end, function()
-            SellGoldenPotatoes:FireServer(Amount)
-            return Delay
-         end, 1)
-      end
-   end,
-})
-
-local Section = SellTab:CreateSection("Auto Sell Golden Potatoes")
-
-local selling = false
-
-local SellAllToggle = SellTab:CreateToggle({
-   Name = "Auto Sell Golden Potatoes",
-   CurrentValue = false,
-   Flag = "AutoSellGolden",
-   Callback = function(state)
-      selling = state
-   end,
-})
-
-StartManagedLoop("AutoSellGoldenAll", function()
-   return true
-end, function()
-   if selling then
-      SellCurrentGoldenPotatoes()
-   end
-
-   return 0.15
-end, 0.5)
-
-local PotatoDelay = 10
-local PotatoSelling = false
-local PotatoSellLabel = SellTab:CreateLabel("Auto Sell Potatoes")
-local PotatoDelayInput = SellTab:CreateInput({
-   Name = "Potato Delay (seconds)",
-   PlaceholderText = "Enter Delay",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Value)
-      PotatoDelay = tonumber(Value) or 0
-   end,
-})
-local AutoSellPotatoesToggle = SellTab:CreateToggle({
-   Name = "Auto Sell Potatoes",
-   CurrentValue = false,
-   Flag = "AutoSellPotatoesToggle",
-   Callback = function(Value)
-      PotatoSelling = Value
-
-      if PotatoSelling then
-         StartManagedLoop("AutoSellPotatoes", function()
-            return PotatoSelling
-         end, function()
-            SellCurrentPotatoes()
-            return PotatoDelay
-         end, 1)
-      end
-   end,
-})
-
-local AutoClickLabel = AutoTab:CreateLabel("Auto Clicker")
-local Clicking = false
-local AutoClickToggle = AutoTab:CreateToggle({
-   Name = "Auto Click (0.005s)",
+AutoTab:CreateSection("Click")
+local AutoClick = false
+AutoTab:CreateToggle({
+   Name = "Auto Click (0.1s)",
    CurrentValue = false,
    Flag = "AutoClickToggle",
-   Callback = function(Clicks)
-      Clicking = Clicks
+   Callback = function(value)
+      AutoClick = value
 
-      if Clicking then
+      if AutoClick then
          StartManagedLoop("AutoClick", function()
-            return Clicking
+            return AutoClick
          end, function()
-            PerformClick:FireServer()
-            return 0.005
-         end, 0.25)
+            FireClick()
+            return 0.1
+         end, 0.5)
       end
    end,
 })
 
-local UpgradeSection = UpgradeTab:CreateSection("Auto Upgrade")
-local UpgradeLabel = UpgradeTab:CreateLabel("Auto Upgrade Loop")
-local AutoUpgradeOrder = {
-   "stronger_hands",
-   "padded_gloves",
-   "steel_trowel",
-   "golden_trowel",
-   "farmers_instinct",
-   "golden_touch",
-   "collectors_guidebook",
-   "premium_fertilizer",
-   "lucky_fertilizer",
-   "prize_winning_seeds",
-   "midas_touch"
-}
-local AutoUpgradeLoop = false
-local AutoUpgradeToggle = UpgradeTab:CreateToggle({
-   Name = "Auto Upgrade Loop",
+AutoTab:CreateSection("Upgrades")
+local AutoUpgrade = false
+AutoTab:CreateToggle({
+   Name = "Auto Upgrade",
    CurrentValue = false,
-   Flag = "AutoUpgradeLoop",
-   Callback = function(Value)
-      AutoUpgradeLoop = Value
+   Flag = "AutoUpgradeToggle",
+   Callback = function(value)
+      AutoUpgrade = value
 
-      if AutoUpgradeLoop then
-         StartManagedLoop("AutoUpgradeLoop", function()
-            return AutoUpgradeLoop
+      if AutoUpgrade then
+         StartManagedLoop("AutoUpgrade", function()
+            return AutoUpgrade
          end, function()
-            for _, upgrade in ipairs(AutoUpgradeOrder) do
-               if not AutoUpgradeLoop then
-                  break
-               end
-
-               PurchaseClickUpgrade:FireServer(upgrade)
-               task.wait(0.2)
-            end
-
+            FireUpgradeBatch()
             return 1
          end, 1)
       end
    end,
 })
 
-local DigSection = DigTab:CreateSection("Digging")
-local DigLabel = DigTab:CreateLabel("Smart Auto Dig")
-local AutoDig = false
-local DigSquareIndex = 1
-local DigGridColumns = 6
-local DigGridRows = 3
-local DigInterval = 1.1
-local DigRegenDelay = 1.5
-local DigStaminaCost = 5
-local DigBoardSize = DigGridColumns * DigGridRows
-local AutoDigToggle = DigTab:CreateToggle({
-   Name = "Auto Dig",
-   CurrentValue = false,
-   Flag = "AutoDigToggle",
-   Callback = function(Value)
-      AutoDig = Value
-
-      if AutoDig then
-         StartManagedLoop("AutoDig", function()
-            return AutoDig
-         end, function()
-            local currentStamina, maxStamina = GetStaminaValues()
-
-            if currentStamina and maxStamina and currentStamina <= 0 then
-               return DigRegenDelay
-            elseif currentStamina and currentStamina < DigStaminaCost then
-               return DigRegenDelay
-            end
-
-            DigSquare:FireServer(DigSquareIndex)
-            DigSquareIndex = DigSquareIndex + 1
-
-            if DigSquareIndex > DigBoardSize then
-               DigSquareIndex = 1
-               return math.max(DigInterval, 1.2)
-            end
-
-            return DigInterval
-         end, 1)
-      else
-         DigSquareIndex = 1
-      end
+AutoTab:CreateSection("Ant Queen")
+local AutoFeed = false
+AutoTab:CreateButton({
+   Name = "Feed Queen x10",
+   Callback = function()
+      FeedQueen(FeedAmount)
    end,
 })
 
-local PrestigeSection = RebirthTab:CreateSection("Ascension")
-local AscendLabel = RebirthTab:CreateLabel("Ascension Upgrades")
-local MacroAscensionOrder = {"abundance", "prestige", "thrifty"}
-local MacroAscensionIndex = 1
-local AbundanceAscend = false
-local AscendToggle = RebirthTab:CreateToggle({
-   Name = "Abundance Ascension",
+AutoTab:CreateToggle({
+   Name = "Auto Feed Queen",
    CurrentValue = false,
-   Flag = "AutoAscend",
-   Callback = function(abundance)
-      AbundanceAscend = abundance
+   Flag = "AutoFeedToggle",
+   Callback = function(value)
+      AutoFeed = value
 
-      if AbundanceAscend then
-         StartManagedLoop("AbundanceAscension", function()
-            return AbundanceAscend
+      if AutoFeed then
+         StartManagedLoop("AutoFeedQueen", function()
+            return AutoFeed
          end, function()
-            PerformAscension:FireServer("abundance")
-            return 60
-         end, 2)
-      end
-   end,
-})
-
-local PrestigeAscend = false
-
-local PrestigeAscendToggle = RebirthTab:CreateToggle({
-   Name = "Prestige Ascension",
-   CurrentValue = false,
-   Flag = "PrestigeAscension",
-   Callback = function(PrestigeA)
-      PrestigeAscend = PrestigeA
-
-      if PrestigeAscend then
-         StartManagedLoop("PrestigeAscension", function()
-            return PrestigeAscend
-         end, function()
-            PerformAscension:FireServer("prestige")
-            return 60
-         end, 2)
-      end
-   end,
-})
-
-local ThriftAscend = false
-local ThriftyAscendToggle = RebirthTab:CreateToggle({
-   Name = "Thrifty Ascension",
-   CurrentValue = false,
-   Flag = "ThriftyAscension",
-   Callback = function(ThriftyAscend)
-      ThriftAscend = ThriftyAscend
-
-      if ThriftAscend then
-         StartManagedLoop("ThriftyAscension", function()
-            return ThriftAscend
-         end, function()
-            PerformAscension:FireServer("thrifty")
-            return 60
-         end, 2)
-      end
-   end,
-})
-
-local Divider = RebirthTab:CreateSection("Prestige")
-local PrestigeLabel = RebirthTab:CreateLabel("Auto Prestige")
-local Prestiging = false
-local AutoPrestigeToggle = RebirthTab:CreateToggle({
-   Name = "Auto Prestige (32s)",
-   CurrentValue = false,
-   Flag = "AutoPrestigeToggle",
-   Callback = function(APrestige)
-      Prestiging = APrestige
-      if Prestiging then
-         StartManagedLoop("AutoPrestige", function()
-            return Prestiging
-         end, function()
-            PerformPrestige:FireServer()
-            return 32
-         end, 2)
-      end
-   end,
-})
-
-local MacroSection = MacroTab:CreateSection("Core Macros")
-local MacroLabel = MacroTab:CreateLabel("Progression / SuperHuman")
-
-local MPrestige = PerformPrestige
-local MGoldenSell = SellGoldenPotatoes
-local MWisdom = PurchaseClickUpgrade
-local MEnergy = PurchaseClickUpgrade
-local MOmni = PurchaseClickUpgrade
-local MHarvest = PurchaseClickUpgrade
-local MGalactic = PurchaseClickUpgrade
-
-local SuperHumanMacroDivider = MacroTab:CreateSection("SuperHuman Macro")
-local SuperHumanMacroLabel = MacroTab:CreateLabel("SuperHuman Macro")
-
-local superhumanmacro = false
-
-local SuperMacroV1 = {
-    {"prestige", nil, 2.6},
-
-    {"sell", 1_000_000, 0.05},
-    {"wisdom", nil, 0.8},
-
-    {"sell", 428_700, 0.05},
-    {"wisdom", nil, 1.9},
-
-    {"sell", 140_000_000, 0.05},
-    {"energy", nil, 0.3},
-
-    {"sell", 150_000_000, 0},
-    {"energy", nil, 0.6},
-
-    {"sell", 300_000_000, 0},
-    {"energy", nil, 1},
-
-    {"sell", 2_870_000_000, 0},
-    {"omni", nil, 1},
-
-    {"sell", 4_000_000_000, 0},
-    {"omni", nil, 1},
-
-    {"sell", 8_000_000_000, 0},
-    {"harvest", nil, 0.6},
-
-    {"sell", 27_830_000_000, 0},
-    {"harvest", nil, 0.05},
-
-    {"galactic", nil, 0.5},
-
-    {"sell", 40_670_000_000, 0},
-    {"galactic", nil, 20.5},
-
-    {"sell", 3_000_000_000_000, 0.5}
-}
-
-local MacroV1Toggle = MacroTab:CreateToggle({
-    Name = "SuperHumanMacro V1",
-    CurrentValue = false,
-    Flag = "SuperHumanMacroV1",
-
-    Callback = function(superhumanmacrov1)
-        superhumanmacro = superhumanmacrov1
-        if superhumanmacro then
-            StartManagedLoop("SuperHumanMacro", function()
-                return superhumanmacro
-            end, function()
-                for _, step in ipairs(SuperMacroV1) do
-                    if not superhumanmacro then
-                        break
-                    end
-
-                    local action, value, delay = unpack(step)
-
-                    if action == "prestige" then
-                        MPrestige:FireServer()
-
-                    elseif action == "sell" then
-                        MGoldenSell:FireServer(value)
-
-                    elseif action == "wisdom" then
-                        MWisdom:FireServer("grandfathers_wisdom")
-
-                    elseif action == "energy" then
-                        MEnergy:FireServer("infinite_energy")
-
-                    elseif action == "omni" then
-                        MOmni:FireServer("omnipotato_blessing")
-
-                    elseif action == "harvest" then
-                        MHarvest:FireServer("transcendent_harvest")
-
-                    elseif action == "galactic" then
-                        MGalactic:FireServer("galactic_harvest")
-                    end
-
-                    task.wait(delay)
-                end
-            end, 1)
-        end
-    end,
-})
-
-local ProgressionMacroDivider = MacroTab:CreateSection("Progression Macro")
-local ProgressionMacroLabel = MacroTab:CreateLabel("Progression Macro")
-local progressionmacro = false
-local ProgressionCoreUpgradeOrder = {
-   "grandfathers_wisdom",
-   "infinite_energy",
-   "omnipotato_blessing",
-    "transcendent_harvest",
-    "galactic_harvest"
-}
-local ProgressionSellDelay = 20
-local ProgressionAscensionDelay = 60
-local ProgressionLastSellAt = 0
-local ProgressionLastAscensionAt = 0
-local ProgressionMacroToggle = MacroTab:CreateToggle({
-    Name = "Progression Macro V1",
-    CurrentValue = false,
-    Flag = "ProgressionMacroV1",
-    Callback = function(Value)
-        progressionmacro = Value
-
-        if progressionmacro then
-            ProgressionLastSellAt = os.clock()
-            ProgressionLastAscensionAt = os.clock()
-            StartManagedLoop("ProgressionMacroV1", function()
-                return progressionmacro
-            end, function()
-                for _, upgrade in ipairs(AutoUpgradeOrder) do
-                    if not progressionmacro then
-                        break
-                    end
-
-                    PurchaseClickUpgrade:FireServer(upgrade)
-                    task.wait(0.15)
-                end
-
-                for _, upgrade in ipairs(ProgressionCoreUpgradeOrder) do
-                    if not progressionmacro then
-                        break
-                    end
-
-                    PurchaseClickUpgrade:FireServer(upgrade)
-                    task.wait(0.3)
-                end
-
-                local now = os.clock()
-                if now - ProgressionLastSellAt >= ProgressionSellDelay then
-                  SellCurrentPotatoes()
-                  SellCurrentGoldenPotatoes()
-                  PerformPrestige:FireServer()
-                  ProgressionLastSellAt = now
-
-                  if now - ProgressionLastAscensionAt >= ProgressionAscensionDelay then
-                     PerformAscension:FireServer(MacroAscensionOrder[MacroAscensionIndex])
-                     MacroAscensionIndex = MacroAscensionIndex + 1
-                     if MacroAscensionIndex > #MacroAscensionOrder then
-                        MacroAscensionIndex = 1
-                     end
-                     ProgressionLastAscensionAt = now
-                  end
-
-                  return 1
-                end
-
-                return 0.5
-            end, 1)
-        end
-    end,
-})
-
-local NotificationContainer = player.PlayerGui:WaitForChild("PotatoGameGUI"):WaitForChild("NotificationContainer")
-local NoNotifToggle = MiscTab:CreateToggle({
-   Name = "Disable Notifications",
-   CurrentValue = false,
-   Flag = "DisableNotifications",
-   Callback = function(DisableNotifications)
-      NotificationContainer.Visible = not DisableNotifications
-   end,
-})
-
-local GeneratorFarm = false
-
-local GeneratorFarmToggle = MiscTab:CreateToggle({
-   Name = "Auto Farm Generator",
-   CurrentValue = false,
-   Flag = "GeneratorFarm",
-   Callback = function(GFarm)
-      GeneratorFarm = GFarm
-
-      if GeneratorFarm then
-         StartManagedLoop("GeneratorFarm", function()
-            return GeneratorFarm
-         end, function()
-            PurchaseGenerator:FireServer("potato_seedling")
-            DeleteGenerator:FireServer("potato_seedling")
-            return 0.05
+            FeedQueen(FeedAmount)
+            return 1
          end, 1)
       end
    end,
 })
 
-local AutoBuyProductionPotion = false
-local ProductionAutoBuyToggle = ShopTab:CreateToggle({
-   Name = "Production AutoBuy",
+MacroTab:CreateSection("Progression Macro")
+MacroTab:CreateLabel("Upgrade + Feed + Ascend")
+local ProgressionMacro = false
+local MacroLoopDelay = 0.2
+local MacroUpgradeDelay = 1
+local MacroFeedDelay = 1.5
+local MacroAscensionUpgradeDelay = 4
+local MacroAscendDelay = 30
+local MacroLastUpgradeAt = 0
+local MacroLastFeedAt = 0
+local MacroLastAscensionUpgradeAt = 0
+local MacroLastAscendAt = 0
+MacroTab:CreateToggle({
+   Name = "Progression Macro V1",
    CurrentValue = false,
-   Flag = "ProductionAutoBuy",
-   Callback = function(ProductionPotion)
-      AutoBuyProductionPotion = ProductionPotion
-      if AutoBuyProductionPotion then
-         StartManagedLoop("ProductionAutoBuy", function()
-            return AutoBuyProductionPotion
-         end, function()
-            PurchaseShopPotato:FireServer("potion_production")
-            return 60
-         end, 2)
-      end
-   end,
-})
+   Flag = "ProgressionMacroV1",
+   Callback = function(value)
+      ProgressionMacro = value
 
-local AutoBuyLuckPotion = false
-local LuckAutoBuyToggle = ShopTab:CreateToggle({
-   Name = "Luck AutoBuy",
-   CurrentValue = false,
-   Flag = "LuckAutoBuy",
-   Callback = function(LuckPotion)
-      AutoBuyLuckPotion = LuckPotion
-      if AutoBuyLuckPotion then
-         StartManagedLoop("LuckAutoBuy", function()
-            return AutoBuyLuckPotion
+      if ProgressionMacro then
+         MacroLastUpgradeAt = os.clock()
+         MacroLastFeedAt = os.clock()
+         MacroLastAscensionUpgradeAt = os.clock()
+         MacroLastAscendAt = os.clock()
+         StartManagedLoop("ProgressionMacroV1", function()
+            return ProgressionMacro
          end, function()
-            PurchaseShopPotato:FireServer("potion_luck")
-            return 60
-         end, 2)
-      end
-   end,
-})
+            local now = os.clock()
+            if now - MacroLastUpgradeAt >= MacroUpgradeDelay then
+               FireUpgradeBatch()
+               MacroLastUpgradeAt = now
+            end
 
-local AutoBuyGoldenPotion = false
-local GoldenAutoBuyToggle = ShopTab:CreateToggle({
-   Name = "GoldenAutoBuy",
-   CurrentValue = false,
-   Flag = "GoldenAutoBuy",
-   Callback = function(GoldenPotion)
-      AutoBuyGoldenPotion = GoldenPotion
-      if AutoBuyGoldenPotion then
-         StartManagedLoop("GoldenAutoBuy", function()
-            return AutoBuyGoldenPotion
-         end, function()
-            PurchaseShopPotato:FireServer("potion_golden")
-            return 60
-         end, 2)
-      end
-   end,
-})
-local AutoBuyClickPotion = false
-local ClickAutoBuyToggle = ShopTab:CreateToggle({
-   Name = "Click AutoBuy",
-   CurrentValue = false,
-   Flag = "ClickAutoBuy",
-   Callback = function(ClickPotion)
-      AutoBuyClickPotion = ClickPotion
-      if AutoBuyClickPotion then
-         StartManagedLoop("ClickAutoBuy", function()
-            return AutoBuyClickPotion
-         end, function()
-            PurchaseShopPotato:FireServer("potion_click")
-            return 60
-         end, 2)
-      end
-   end,
-})
+            if now - MacroLastFeedAt >= MacroFeedDelay then
+               FeedQueen(FeedAmount)
+               MacroLastFeedAt = now
+            end
 
-if getconnections then
-    for _, connection in pairs(getconnections(player.Idled)) do
-        if connection.Disable then
-            connection:Disable()
-        elseif connection.Disconnect then
-            connection:Disconnect()
-        end
-    end
-else
-    player.Idled:Connect(function()
-        VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-        task.wait(1)
-        VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-    end)
-end
+            if now - MacroLastAscensionUpgradeAt >= MacroAscensionUpgradeDelay then
+               BuyAscensionUpgradeOrder()
+               MacroLastAscensionUpgradeAt = os.clock()
+            end
+
+            if now - MacroLastAscendAt >= MacroAscendDelay then
+               Ascend()
+               MacroLastAscendAt = os.clock()
+               task.wait(0.25)
+               BuyAscensionUpgradeOrder()
+               MacroLastAscensionUpgradeAt = os.clock()
+            end
+
+            return MacroLoopDelay
+         end, 1)
+      end
+   end,
+})
 
 Rayfield:LoadConfiguration()
