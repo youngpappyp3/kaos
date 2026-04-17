@@ -10,6 +10,7 @@ local VirtualUser = game:GetService("VirtualUser")
 local player = Players.LocalPlayer
 
 local ClickFish = ReplicatedStorage:WaitForChild("ClickFish", 9e9)
+local MinigameResult = ReplicatedStorage:WaitForChild("MinigameResult", 9e9)
 local BuyUpgrade = ReplicatedStorage:WaitForChild("BuyUpgrade", 9e9)
 local SellFish = ReplicatedStorage:WaitForChild("SellFish", 9e9)
 local DoPrestige = ReplicatedStorage:WaitForChild("DoPrestige", 9e9)
@@ -81,6 +82,29 @@ local AutoFishToggle = FishTab:CreateToggle({
             local args = {}
             ClickFish:FireServer(unpack(args))
             return 0.1
+         end, 0.5)
+      end
+   end,
+})
+
+local AutoFishResult = false
+local AutoFishResultToggle = FishTab:CreateToggle({
+   Name = "Auto Fish Result",
+   CurrentValue = false,
+   Flag = "AutoFishResultToggle",
+   Callback = function(Value)
+      AutoFishResult = Value
+
+      if AutoFishResult then
+         StartManagedLoop("AutoFishResult", function()
+            return AutoFishResult
+         end, function()
+            local args = {
+               [1] = true,
+               [2] = false,
+            }
+            MinigameResult:FireServer(unpack(args))
+            return 0.15
          end, 0.5)
       end
    end,
