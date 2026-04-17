@@ -12,6 +12,7 @@ local player = Players.LocalPlayer
 local ClickFish = ReplicatedStorage:WaitForChild("ClickFish", 9e9)
 local BuyUpgrade = ReplicatedStorage:WaitForChild("BuyUpgrade", 9e9)
 local SellFish = ReplicatedStorage:WaitForChild("SellFish", 9e9)
+local DoPrestige = ReplicatedStorage:WaitForChild("DoPrestige", 9e9)
 
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
 local Window = Rayfield:CreateWindow({
@@ -26,9 +27,11 @@ local Window = Rayfield:CreateWindow({
    KeySystem = false
 })
 
-local FishTab     = Window:CreateTab("Fish",     4483362458)
-local UpgradeTab  = Window:CreateTab("Upgrades", 4483362458)
-local SellTab     = Window:CreateTab("Sell",     4483362458)
+local FishTab      = Window:CreateTab("Fish",      4483362458)
+local UpgradeTab   = Window:CreateTab("Upgrades",  4483362458)
+local SellTab      = Window:CreateTab("Sell",      4483362458)
+local PrestigeTab  = Window:CreateTab("Prestige",  4483362458)
+local MacroTab     = Window:CreateTab("Macro",     4483362458)
 
 -- ─────────────────────────────────────────────
 -- Shared managed loop helper
@@ -87,10 +90,10 @@ local AutoFishToggle = FishTab:CreateToggle({
 -- AUTO UPGRADE TAB
 -- ─────────────────────────────────────────────
 local UpgradeSection = UpgradeTab:CreateSection("Auto Upgrade")
-local UpgradeLabel   = UpgradeTab:CreateLabel("Loops through all 8 upgrades continuously")
+local UpgradeLabel   = UpgradeTab:CreateLabel("Loops through all 11 upgrades continuously")
 
--- All 8 upgrade IDs (args[1] values 1–8)
-local UpgradeIds = {1, 2, 3, 4, 5, 6, 7, 8}
+-- All 11 upgrade IDs (args[1] values 1–11)
+local UpgradeIds = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
 
 local AutoUpgrading = false
 local AutoUpgradeToggle = UpgradeTab:CreateToggle({
@@ -155,6 +158,131 @@ local AutoSellToggle = SellTab:CreateToggle({
             }
             SellFish:FireServer(unpack(args))
             return SellDelay
+         end, 1)
+      end
+   end,
+})
+
+-- ─────────────────────────────────────────────
+-- AUTO PRESTIGE TAB
+-- ─────────────────────────────────────────────
+local PrestigeSection = PrestigeTab:CreateSection("Auto Prestige")
+local PrestigeLabel   = PrestigeTab:CreateLabel("Fires DoPrestige on a timer")
+
+local PrestigeDelay = 60  -- default: prestige every 60 seconds
+local PrestigeDelayInput = PrestigeTab:CreateInput({
+   Name = "Prestige Interval (seconds)",
+   PlaceholderText = "Default: 60",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Value)
+      PrestigeDelay = tonumber(Value) or 60
+   end,
+})
+
+local AutoPrestiging = false
+local AutoPrestigeToggle = PrestigeTab:CreateToggle({
+   Name = "Auto Prestige",
+   CurrentValue = false,
+   Flag = "AutoPrestigeToggle",
+   Callback = function(Value)
+      AutoPrestiging = Value
+
+      if AutoPrestiging then
+         StartManagedLoop("AutoPrestige", function()
+            return AutoPrestiging
+         end, function()
+            local args = {}
+            DoPrestige:FireServer(unpack(args))
+            return PrestigeDelay
+         end, 1)
+      end
+   end,
+})
+
+-- ─────────────────────────────────────────────
+-- MACRO TAB
+-- ─────────────────────────────────────────────
+local MacroSection = MacroTab:CreateSection("Full Progression Macro")
+local MacroLabel   = MacroTab:CreateLabel("Fish → Upgrade → Sell → Prestige")
+
+--[[
+   MACRO ORDER EXPLAINED:
+   1. FISH (x50 clicks)  – Build up fish inventory fast
+   2. UPGRADE (1–11)     – Spend currency on all upgrades while we have it
+   3. SELL (100)          – Sell fish to bank the profits
+   4. REPEAT steps 1–3 for a set number of cycles
+   5. PRESTIGE            – After enough cycles, prestige to reset & multiply
+   6. Loop forever
+
+   This is optimal because:
+   - You want to farm fish BEFORE upgrading (upgrades cost currency from sells)
+   - Upgrades boost your fish value, so buy them before the next sell
+   - Sell AFTER upgrading so each sell is worth more
+   - Prestige only after several sell cycles so you maximize gains per prestige
+]]
+
+local MacroCyclesBeforePrestige = 5  -- how many fish/upgrade/sell cycles before prestige
+local MacroFishClicks = 50           -- fish clicks per cycle
+local MacroRunning = false
+
+local MacroCyclesInput = MacroTab:CreateInput({
+   Name = "Cycles Before Prestige",
+   PlaceholderText = "Default: 5",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Value)
+      MacroCyclesBeforePrestige = tonumber(Value) or 5
+   end,
+})
+
+local MacroFishInput = MacroTab:CreateInput({
+   Name = "Fish Clicks Per Cycle",
+   PlaceholderText = "Default: 50",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Value)
+      MacroFishClicks = tonumber(Value) or 50
+   end,
+})
+
+local MacroToggle = MacroTab:CreateToggle({
+   Name = "Progression Macro",
+   CurrentValue = false,
+   Flag = "ProgressionMacroToggle",
+   Callback = function(Value)
+      MacroRunning = Value
+
+      if MacroRunning then
+         StartManagedLoop("ProgressionMacro", function()
+            return MacroRunning
+         end, function()
+            for cycle = 1, MacroCyclesBeforePrestige do
+               if not MacroRunning then break end
+
+               -- Step 1: Fish rapidly
+               for i = 1, MacroFishClicks do
+                  if not MacroRunning then break end
+                  ClickFish:FireServer()
+                  task.wait(0.1)
+               end
+
+               -- Step 2: Buy all upgrades 1–11
+               for upgradeId = 1, 11 do
+                  if not MacroRunning then break end
+                  BuyUpgrade:FireServer(upgradeId)
+                  task.wait(0.15)
+               end
+
+               -- Step 3: Sell fish
+               SellFish:FireServer(100)
+               task.wait(0.5)
+            end
+
+            -- Step 4: Prestige after all cycles
+            if MacroRunning then
+               DoPrestige:FireServer()
+               task.wait(2)
+            end
+
+            return 1
          end, 1)
       end
    end,
