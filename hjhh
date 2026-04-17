@@ -4,29 +4,35 @@ if old then
     old:Destroy()
 end
 
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Events = ReplicatedStorage:WaitForChild("Events", 9e9)
-local ClickEvent = Events:WaitForChild("ClickEvent", 9e9)
-local UpgradeEvent = Events:WaitForChild("UpgradeEvent", 9e9)
-local AntQueenFeedEvent = Events:WaitForChild("AntQueenFeedEvent", 9e9)
-local AscensionEvent = Events:WaitForChild("AscensionEvent", 9e9)
+local VirtualUser = game:GetService("VirtualUser")
+local player = Players.LocalPlayer
+
+local ClickFish = ReplicatedStorage:WaitForChild("ClickFish", 9e9)
+local BuyUpgrade = ReplicatedStorage:WaitForChild("BuyUpgrade", 9e9)
+local SellFish = ReplicatedStorage:WaitForChild("SellFish", 9e9)
 
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
 local Window = Rayfield:CreateWindow({
-   Name = "Anti Incrementals",
-   LoadingTitle = "Anti Incrementals",
-   LoadingSubtitle = "by Totemoflol",
+   Name = "Fish Script V1",
+   LoadingTitle = "Fish Game Hub",
+   LoadingSubtitle = "by Script",
    ConfigurationSaving = {
       Enabled = true,
       FolderName = nil,
-      FileName = "AntiIncrementalsConfig"
+      FileName = "FishHubConfig"
    },
    KeySystem = false
 })
 
-local AutoTab = Window:CreateTab("Auto", 4483362458)
-local MacroTab = Window:CreateTab("Macro", 4483362458)
+local FishTab     = Window:CreateTab("Fish",     4483362458)
+local UpgradeTab  = Window:CreateTab("Upgrades", 4483362458)
+local SellTab     = Window:CreateTab("Sell",     4483362458)
 
+-- ─────────────────────────────────────────────
+-- Shared managed loop helper
+-- ─────────────────────────────────────────────
 local ActiveLoops = {}
 
 local function StartManagedLoop(loopName, isRunning, tickFn, errorDelay)
@@ -51,216 +57,126 @@ local function StartManagedLoop(loopName, isRunning, tickFn, errorDelay)
    end)
 end
 
-local UpgradePurchaseAmount = 1
-local FeedAmount = 10
-local PriorityUpgradeIds = {
-   "FireAnt",
-   "AntQueen",
-   "DoubleAnt",
-   "WorkerAnt"
-}
-local SecondaryUpgradeIds = {
-   "MegaClick",
-   "PowerClick",
-   "SharpClick",
-   "SwiftClick",
-   "BasicClick"
-}
-local AscensionUpgradeOrder = {
-   "AscTokens",
-   "AscCoins",
-   "AscPerSecond",
-   "AscRuneBulk",
-   "RuneLuck",
-   "AscDamage",
-   "AscHealth"
-}
+-- ─────────────────────────────────────────────
+-- AUTO FISH TAB
+-- ─────────────────────────────────────────────
+local FishSection = FishTab:CreateSection("Auto Fish")
+local FishLabel   = FishTab:CreateLabel("Automatically clicks fish every 0.1s")
 
-local function FireClick()
-   local args = {}
-   ClickEvent:FireServer(unpack(args))
-end
-
-local function FireUpgradeBatch()
-   local upgrades = {}
-
-   for _, upgradeId in ipairs(PriorityUpgradeIds) do
-      upgrades[#upgrades + 1] = {
-         Id = upgradeId,
-         Amount = UpgradePurchaseAmount,
-      }
-   end
-
-   for _, upgradeId in ipairs(SecondaryUpgradeIds) do
-      upgrades[#upgrades + 1] = {
-         Id = upgradeId,
-         Amount = UpgradePurchaseAmount,
-      }
-   end
-
-   local args = {
-      upgrades,
-   }
-
-   UpgradeEvent:FireServer(unpack(args))
-end
-
-local function FeedQueen(amount)
-   local args = {
-      "Feed",
-      amount,
-   }
-
-   AntQueenFeedEvent:FireServer(unpack(args))
-end
-
-local function Ascend()
-   local args = {
-      "Ascend",
-   }
-
-   AscensionEvent:FireServer(unpack(args))
-end
-
-local function BuyAscensionUpgrade(upgradeId)
-   local args = {
-      "BuyUpgrade",
-      upgradeId,
-      1,
-   }
-
-   AscensionEvent:FireServer(unpack(args))
-end
-
-local function BuyAscensionUpgradeOrder()
-   for _, upgradeId in ipairs(AscensionUpgradeOrder) do
-      BuyAscensionUpgrade(upgradeId)
-      task.wait(0.05)
-   end
-end
-
-AutoTab:CreateSection("Click")
-local AutoClick = false
-AutoTab:CreateToggle({
-   Name = "Auto Click (0.1s)",
+local AutoFishing = false
+local AutoFishToggle = FishTab:CreateToggle({
+   Name = "Auto Fish",
    CurrentValue = false,
-   Flag = "AutoClickToggle",
-   Callback = function(value)
-      AutoClick = value
+   Flag = "AutoFishToggle",
+   Callback = function(Value)
+      AutoFishing = Value
 
-      if AutoClick then
-         StartManagedLoop("AutoClick", function()
-            return AutoClick
+      if AutoFishing then
+         StartManagedLoop("AutoFish", function()
+            return AutoFishing
          end, function()
-            FireClick()
+            local args = {}
+            ClickFish:FireServer(unpack(args))
             return 0.1
          end, 0.5)
       end
    end,
 })
 
-AutoTab:CreateSection("Upgrades")
-local AutoUpgrade = false
-AutoTab:CreateToggle({
+-- ─────────────────────────────────────────────
+-- AUTO UPGRADE TAB
+-- ─────────────────────────────────────────────
+local UpgradeSection = UpgradeTab:CreateSection("Auto Upgrade")
+local UpgradeLabel   = UpgradeTab:CreateLabel("Loops through all 8 upgrades continuously")
+
+-- All 8 upgrade IDs (args[1] values 1–8)
+local UpgradeIds = {1, 2, 3, 4, 5, 6, 7, 8}
+
+local AutoUpgrading = false
+local AutoUpgradeToggle = UpgradeTab:CreateToggle({
    Name = "Auto Upgrade",
    CurrentValue = false,
    Flag = "AutoUpgradeToggle",
-   Callback = function(value)
-      AutoUpgrade = value
+   Callback = function(Value)
+      AutoUpgrading = Value
 
-      if AutoUpgrade then
+      if AutoUpgrading then
          StartManagedLoop("AutoUpgrade", function()
-            return AutoUpgrade
+            return AutoUpgrading
          end, function()
-            FireUpgradeBatch()
+            for _, id in ipairs(UpgradeIds) do
+               if not AutoUpgrading then
+                  break
+               end
+
+               local args = {
+                  [1] = id
+               }
+               BuyUpgrade:FireServer(unpack(args))
+               task.wait(0.2)
+            end
+
             return 1
          end, 1)
       end
    end,
 })
 
-AutoTab:CreateSection("Ant Queen")
-local AutoFeed = false
-AutoTab:CreateButton({
-   Name = "Feed Queen x10",
-   Callback = function()
-      FeedQueen(FeedAmount)
+-- ─────────────────────────────────────────────
+-- AUTO SELL TAB
+-- ─────────────────────────────────────────────
+local SellSection = SellTab:CreateSection("Auto Sell")
+local SellLabel   = SellTab:CreateLabel("Auto sells fish every set interval")
+
+local SellDelay   = 15  -- default: sell every 15 seconds
+local SellDelayInput = SellTab:CreateInput({
+   Name = "Sell Interval (seconds)",
+   PlaceholderText = "Default: 15",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Value)
+      SellDelay = tonumber(Value) or 15
    end,
 })
 
-AutoTab:CreateToggle({
-   Name = "Auto Feed Queen",
+local AutoSelling = false
+local AutoSellToggle = SellTab:CreateToggle({
+   Name = "Auto Sell Fish",
    CurrentValue = false,
-   Flag = "AutoFeedToggle",
-   Callback = function(value)
-      AutoFeed = value
+   Flag = "AutoSellFishToggle",
+   Callback = function(Value)
+      AutoSelling = Value
 
-      if AutoFeed then
-         StartManagedLoop("AutoFeedQueen", function()
-            return AutoFeed
+      if AutoSelling then
+         StartManagedLoop("AutoSellFish", function()
+            return AutoSelling
          end, function()
-            FeedQueen(FeedAmount)
-            return 1
+            local args = {
+               [1] = 100
+            }
+            SellFish:FireServer(unpack(args))
+            return SellDelay
          end, 1)
       end
    end,
 })
 
-MacroTab:CreateSection("Progression Macro")
-MacroTab:CreateLabel("Upgrade + Feed + Ascend")
-local ProgressionMacro = false
-local MacroLoopDelay = 0.2
-local MacroUpgradeDelay = 1
-local MacroFeedDelay = 1.5
-local MacroAscensionUpgradeDelay = 4
-local MacroAscendDelay = 30
-local MacroLastUpgradeAt = 0
-local MacroLastFeedAt = 0
-local MacroLastAscensionUpgradeAt = 0
-local MacroLastAscendAt = 0
-MacroTab:CreateToggle({
-   Name = "Progression Macro V1",
-   CurrentValue = false,
-   Flag = "ProgressionMacroV1",
-   Callback = function(value)
-      ProgressionMacro = value
-
-      if ProgressionMacro then
-         MacroLastUpgradeAt = os.clock()
-         MacroLastFeedAt = os.clock()
-         MacroLastAscensionUpgradeAt = os.clock()
-         MacroLastAscendAt = os.clock()
-         StartManagedLoop("ProgressionMacroV1", function()
-            return ProgressionMacro
-         end, function()
-            local now = os.clock()
-            if now - MacroLastUpgradeAt >= MacroUpgradeDelay then
-               FireUpgradeBatch()
-               MacroLastUpgradeAt = now
-            end
-
-            if now - MacroLastFeedAt >= MacroFeedDelay then
-               FeedQueen(FeedAmount)
-               MacroLastFeedAt = now
-            end
-
-            if now - MacroLastAscensionUpgradeAt >= MacroAscensionUpgradeDelay then
-               BuyAscensionUpgradeOrder()
-               MacroLastAscensionUpgradeAt = os.clock()
-            end
-
-            if now - MacroLastAscendAt >= MacroAscendDelay then
-               Ascend()
-               MacroLastAscendAt = os.clock()
-               task.wait(0.25)
-               BuyAscensionUpgradeOrder()
-               MacroLastAscensionUpgradeAt = os.clock()
-            end
-
-            return MacroLoopDelay
-         end, 1)
-      end
-   end,
-})
+-- ─────────────────────────────────────────────
+-- Anti-AFK
+-- ─────────────────────────────────────────────
+if getconnections then
+    for _, connection in pairs(getconnections(player.Idled)) do
+        if connection.Disable then
+            connection:Disable()
+        elseif connection.Disconnect then
+            connection:Disconnect()
+        end
+    end
+else
+    player.Idled:Connect(function()
+        VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    end)
+end
 
 Rayfield:LoadConfiguration()
