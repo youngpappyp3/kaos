@@ -80,12 +80,12 @@ end
 -- ─────────────────────────────────────────────
 -- AUTO FISH TAB
 -- ─────────────────────────────────────────────
-local FishSection = FishTab:CreateSection("Auto Fish")
-local FishLabel   = FishTab:CreateLabel("Automatically clicks fish every 0.1s")
+local FishSection = FishTab:CreateSection("Auto Tap")
+local FishLabel   = FishTab:CreateLabel("Automatically taps every 0.1s")
 
 local AutoFishing = false
 local AutoFishToggle = FishTab:CreateToggle({
-   Name = "Auto Fish",
+   Name = "Auto Tap",
    CurrentValue = false,
    Flag = "AutoFishToggle",
    Callback = function(Value)
