@@ -11,7 +11,6 @@ local player = Players.LocalPlayer
 
 local ClickFish = ReplicatedStorage:WaitForChild("ClickFish", 9e9)
 local ClickBobber = ReplicatedStorage:WaitForChild("ClickBobber", 9e9)
-local MinigameResult = ReplicatedStorage:WaitForChild("MinigameResult", 9e9)
 local BuyUpgrade = ReplicatedStorage:WaitForChild("BuyUpgrade", 9e9)
 local SellFish = ReplicatedStorage:WaitForChild("SellFish", 9e9)
 local DoPrestige = ReplicatedStorage:WaitForChild("DoPrestige", 9e9)
@@ -77,6 +76,45 @@ local function FindMinigameOverlay()
    return nil
 end
 
+local ReelInputDown = false
+local CatchAssistDeadzone = 8
+
+local function SetReelInputState(isDown)
+   if ReelInputDown == isDown then
+      return
+   end
+
+   ReelInputDown = isDown
+   local camera = workspace.CurrentCamera
+   if not camera then
+      return
+   end
+
+   if isDown then
+      VirtualUser:Button1Down(Vector2.new(0, 0), camera.CFrame)
+   else
+      VirtualUser:Button1Up(Vector2.new(0, 0), camera.CFrame)
+   end
+end
+
+local function GetMinigameTrackingFrames(overlay)
+   if not overlay then
+      return nil, nil
+   end
+
+   local barOuter = overlay:FindFirstChild("BarOuter", true)
+   if not barOuter then
+      return nil, nil
+   end
+
+   local fishingBar = barOuter:FindFirstChild("FishingBar")
+   if not fishingBar then
+      return nil, nil
+   end
+
+   return fishingBar:FindFirstChild("CatchZone"), fishingBar:FindFirstChild("FishIcon")
+end
+
 -- ─────────────────────────────────────────────
 -- AUTO FISH TAB
 -- ─────────────────────────────────────────────
@@ -124,39 +162,45 @@ local AutoFishResultToggle = FishTab:CreateToggle({
    end,
 })
 
-local AutoWinMinigame = false
-local LastHandledOverlay = nil
-local AutoWinMinigameToggle = FishTab:CreateToggle({
-   Name = "Auto Win Minigame",
+local AutoCatchAssist = false
+local AutoCatchAssistToggle = FishTab:CreateToggle({
+   Name = "Auto Catch Assist",
    CurrentValue = false,
-   Flag = "AutoWinMinigameToggle",
+   Flag = "AutoCatchAssistToggle",
    Callback = function(Value)
-      AutoWinMinigame = Value
+      AutoCatchAssist = Value
 
-      if not AutoWinMinigame then
-         LastHandledOverlay = nil
+      if not AutoCatchAssist then
+         SetReelInputState(false)
          return
       end
 
-      StartManagedLoop("AutoWinMinigame", function()
-         return AutoWinMinigame
+      StartManagedLoop("AutoCatchAssist", function()
+         return AutoCatchAssist
       end, function()
          local overlay = FindMinigameOverlay()
-         if overlay then
-            if overlay ~= LastHandledOverlay then
-               local args = {
-                  [1] = true,
-                  [2] = false,
-               }
-               MinigameResult:FireServer(unpack(args))
-               LastHandledOverlay = overlay
-               return 0.1
-            end
-         else
-            LastHandledOverlay = nil
+         if not overlay then
+            SetReelInputState(false)
+            return 0.03
          end
 
-         return 0.03
+         local catchZone, fishIcon = GetMinigameTrackingFrames(overlay)
+         if not catchZone or not fishIcon then
+            SetReelInputState(false)
+            return 0.03
+         end
+
+         local zoneTop = catchZone.AbsolutePosition.Y
+         local zoneBottom = zoneTop + catchZone.AbsoluteSize.Y
+         local fishCenterY = fishIcon.AbsolutePosition.Y + fishIcon.AbsoluteSize.Y * 0.5
+
+         if fishCenterY <= zoneTop + CatchAssistDeadzone then
+            SetReelInputState(true)
+         elseif fishCenterY >= zoneBottom - CatchAssistDeadzone then
+            SetReelInputState(false)
+         end
+
+         return 0.016
       end, 0.5)
    end,
 })
