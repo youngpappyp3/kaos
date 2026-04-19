@@ -169,8 +169,19 @@ local AutoMinigameResultToggle = FishTab:CreateToggle({
          if overlay then
             if overlay ~= LastHandledOverlay then
                -- New popup detected – fire instantly
-               Log("AutoMinigame", "MinigameOverlay detected! Firing MinigameResult(true, false)")
-               MinigameResult:FireServer(true, false)
+               Log("AutoMinigame", "MinigameOverlay detected! Firing MinigameResult(true, false) multiple times")
+               
+               -- Fire 2 to 3 times with slightly random timing to ensure it registers
+               task.spawn(function()
+                  local fires = math.random(2, 3)
+                  for i = 1, fires do
+                     MinigameResult:FireServer(true, false)
+                     if i < fires then
+                        task.wait(math.random(3, 8) / 100) -- Wait between 0.03s - 0.08s
+                     end
+                  end
+               end)
+               
                LastHandledOverlay = overlay
                Log("AutoMinigame", "Fired OK – waiting for overlay to disappear")
             end
