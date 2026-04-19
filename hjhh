@@ -9,12 +9,23 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
 local player = Players.LocalPlayer
 
-local ClickFish = ReplicatedStorage:WaitForChild("ClickFish", 9e9)
-local ClickBobber = ReplicatedStorage:WaitForChild("ClickBobber", 9e9)
+-- ─────────────────────────────────────────────
+-- Log helper
+-- ─────────────────────────────────────────────
+local function Log(tag, msg)
+    print(string.format("[FishScript][%s] %s", tag, msg))
+end
+
+Log("Init", "Script loading...")
+
+local ClickFish     = ReplicatedStorage:WaitForChild("ClickFish",     9e9)
+local ClickBobber   = ReplicatedStorage:WaitForChild("ClickBobber",   9e9)
 local MinigameResult = ReplicatedStorage:WaitForChild("MinigameResult", 9e9)
-local BuyUpgrade = ReplicatedStorage:WaitForChild("BuyUpgrade", 9e9)
-local SellFish = ReplicatedStorage:WaitForChild("SellFish", 9e9)
-local DoPrestige = ReplicatedStorage:WaitForChild("DoPrestige", 9e9)
+local BuyUpgrade    = ReplicatedStorage:WaitForChild("BuyUpgrade",    9e9)
+local SellFish      = ReplicatedStorage:WaitForChild("SellFish",      9e9)
+local DoPrestige    = ReplicatedStorage:WaitForChild("DoPrestige",    9e9)
+
+Log("Init", "All RemoteEvents found OK")
 
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
 local Window = Rayfield:CreateWindow({
@@ -35,6 +46,8 @@ local SellTab      = Window:CreateTab("Sell",      4483362458)
 local PrestigeTab  = Window:CreateTab("Prestige",  4483362458)
 local MacroTab     = Window:CreateTab("Macro",     4483362458)
 
+Log("Init", "UI created OK")
+
 -- ─────────────────────────────────────────────
 -- Shared managed loop helper
 -- ─────────────────────────────────────────────
@@ -42,26 +55,35 @@ local ActiveLoops = {}
 
 local function StartManagedLoop(loopName, isRunning, tickFn, errorDelay)
    if ActiveLoops[loopName] then
+      Log("Loop", loopName .. " already running, skipping duplicate start")
       return
    end
 
    ActiveLoops[loopName] = true
+   Log("Loop", loopName .. " started")
+
    task.spawn(function()
       while isRunning() do
-         local ok, waitTime = pcall(tickFn)
+         local ok, result = pcall(tickFn)
          if ok then
-            if type(waitTime) == "number" and waitTime > 0 then
-               task.wait(waitTime)
+            if type(result) == "number" and result > 0 then
+               task.wait(result)
             end
          else
+            -- result is the error message when pcall fails
+            Log("Loop:ERROR", loopName .. " error: " .. tostring(result))
             task.wait(errorDelay or 1)
          end
       end
 
       ActiveLoops[loopName] = nil
+      Log("Loop", loopName .. " stopped")
    end)
 end
 
+-- ─────────────────────────────────────────────
+-- Minigame overlay finder
+-- ─────────────────────────────────────────────
 local function FindMinigameOverlay()
    local playerGui = player:FindFirstChildOfClass("PlayerGui")
    if not playerGui then
@@ -69,7 +91,9 @@ local function FindMinigameOverlay()
    end
 
    for _, guiObject in ipairs(playerGui:GetDescendants()) do
-      if guiObject.Name == "MinigameOverlay" and guiObject:IsA("GuiObject") and guiObject.Visible then
+      if guiObject.Name == "MinigameOverlay"
+         and guiObject:IsA("GuiObject")
+         and guiObject.Visible then
          return guiObject
       end
    end
@@ -90,13 +114,13 @@ local AutoFishToggle = FishTab:CreateToggle({
    Flag = "AutoFishToggle",
    Callback = function(Value)
       AutoFishing = Value
+      Log("AutoFish", "Toggled " .. (Value and "ON" or "OFF"))
 
       if AutoFishing then
          StartManagedLoop("AutoFish", function()
             return AutoFishing
          end, function()
-            local args = {}
-            ClickFish:FireServer(unpack(args))
+            ClickFish:FireServer()
             return 0.1
          end, 0.5)
       end
@@ -110,14 +134,13 @@ local AutoFishResultToggle = FishTab:CreateToggle({
    Flag = "AutoFishResultToggle",
    Callback = function(Value)
       AutoFishResult = Value
+      Log("AutoBobber", "Toggled " .. (Value and "ON" or "OFF"))
 
       if AutoFishResult then
          StartManagedLoop("AutoClickBobber", function()
             return AutoFishResult
          end, function()
-            local args = {
-            }
-            ClickBobber:FireServer(unpack(args))
+            ClickBobber:FireServer()
             return 0.15
          end, 0.5)
       end
@@ -132,6 +155,7 @@ local AutoMinigameResultToggle = FishTab:CreateToggle({
    Flag = "AutoMinigameResultToggle",
    Callback = function(Value)
       AutoMinigameResult = Value
+      Log("AutoMinigame", "Toggled " .. (Value and "ON" or "OFF"))
 
       if not AutoMinigameResult then
          LastHandledOverlay = nil
@@ -145,11 +169,16 @@ local AutoMinigameResultToggle = FishTab:CreateToggle({
          if overlay then
             if overlay ~= LastHandledOverlay then
                -- New popup detected – fire instantly
+               Log("AutoMinigame", "MinigameOverlay detected! Firing MinigameResult(true, false)")
                MinigameResult:FireServer(true, false)
                LastHandledOverlay = overlay
+               Log("AutoMinigame", "Fired OK – waiting for overlay to disappear")
             end
          else
-            -- Overlay gone – reset so the NEXT popup is caught immediately
+            if LastHandledOverlay ~= nil then
+               -- overlay just disappeared
+               Log("AutoMinigame", "Overlay gone – ready for next popup")
+            end
             LastHandledOverlay = nil
          end
 
@@ -164,7 +193,6 @@ local AutoMinigameResultToggle = FishTab:CreateToggle({
 local UpgradeSection = UpgradeTab:CreateSection("Auto Upgrade")
 local UpgradeLabel   = UpgradeTab:CreateLabel("Loops through all 11 upgrades continuously")
 
--- All 11 upgrade IDs (args[1] values 1–11)
 local UpgradeIds = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
 
 local AutoUpgrading = false
@@ -174,6 +202,7 @@ local AutoUpgradeToggle = UpgradeTab:CreateToggle({
    Flag = "AutoUpgradeToggle",
    Callback = function(Value)
       AutoUpgrading = Value
+      Log("AutoUpgrade", "Toggled " .. (Value and "ON" or "OFF"))
 
       if AutoUpgrading then
          StartManagedLoop("AutoUpgrade", function()
@@ -181,16 +210,16 @@ local AutoUpgradeToggle = UpgradeTab:CreateToggle({
          end, function()
             for _, id in ipairs(UpgradeIds) do
                if not AutoUpgrading then
+                  Log("AutoUpgrade", "Stopped mid-cycle")
                   break
                end
 
-               local args = {
-                  [1] = id
-               }
-               BuyUpgrade:FireServer(unpack(args))
+               Log("AutoUpgrade", "Buying upgrade ID: " .. id)
+               BuyUpgrade:FireServer(id)
                task.wait(0.2)
             end
 
+            Log("AutoUpgrade", "Cycle complete – waiting 1s before next round")
             return 1
          end, 1)
       end
@@ -203,13 +232,14 @@ local AutoUpgradeToggle = UpgradeTab:CreateToggle({
 local SellSection = SellTab:CreateSection("Auto Sell")
 local SellLabel   = SellTab:CreateLabel("Auto sells fish every set interval")
 
-local SellDelay   = 15  -- default: sell every 15 seconds
+local SellDelay = 15
 local SellDelayInput = SellTab:CreateInput({
    Name = "Sell Interval (seconds)",
    PlaceholderText = "Default: 15",
    RemoveTextAfterFocusLost = false,
    Callback = function(Value)
       SellDelay = tonumber(Value) or 15
+      Log("AutoSell", "Sell interval set to " .. SellDelay .. "s")
    end,
 })
 
@@ -220,15 +250,15 @@ local AutoSellToggle = SellTab:CreateToggle({
    Flag = "AutoSellFishToggle",
    Callback = function(Value)
       AutoSelling = Value
+      Log("AutoSell", "Toggled " .. (Value and "ON" or "OFF"))
 
       if AutoSelling then
          StartManagedLoop("AutoSellFish", function()
             return AutoSelling
          end, function()
-            local args = {
-               [1] = 100
-            }
-            SellFish:FireServer(unpack(args))
+            Log("AutoSell", "Selling fish (qty: 100)")
+            SellFish:FireServer(100)
+            Log("AutoSell", "Sold! Next sell in " .. SellDelay .. "s")
             return SellDelay
          end, 1)
       end
@@ -241,13 +271,14 @@ local AutoSellToggle = SellTab:CreateToggle({
 local PrestigeSection = PrestigeTab:CreateSection("Auto Prestige")
 local PrestigeLabel   = PrestigeTab:CreateLabel("Fires DoPrestige on a timer")
 
-local PrestigeDelay = 60  -- default: prestige every 60 seconds
+local PrestigeDelay = 60
 local PrestigeDelayInput = PrestigeTab:CreateInput({
    Name = "Prestige Interval (seconds)",
    PlaceholderText = "Default: 60",
    RemoveTextAfterFocusLost = false,
    Callback = function(Value)
       PrestigeDelay = tonumber(Value) or 60
+      Log("AutoPrestige", "Prestige interval set to " .. PrestigeDelay .. "s")
    end,
 })
 
@@ -258,13 +289,15 @@ local AutoPrestigeToggle = PrestigeTab:CreateToggle({
    Flag = "AutoPrestigeToggle",
    Callback = function(Value)
       AutoPrestiging = Value
+      Log("AutoPrestige", "Toggled " .. (Value and "ON" or "OFF"))
 
       if AutoPrestiging then
          StartManagedLoop("AutoPrestige", function()
             return AutoPrestiging
          end, function()
-            local args = {}
-            DoPrestige:FireServer(unpack(args))
+            Log("AutoPrestige", "Firing DoPrestige!")
+            DoPrestige:FireServer()
+            Log("AutoPrestige", "Prestiged! Next in " .. PrestigeDelay .. "s")
             return PrestigeDelay
          end, 1)
       end
@@ -281,9 +314,9 @@ local MacroLabel   = MacroTab:CreateLabel("Fish → Upgrade → Sell → Prestig
    MACRO ORDER EXPLAINED:
    1. FISH (x50 clicks)  – Build up fish inventory fast
    2. UPGRADE (1–11)     – Spend currency on all upgrades while we have it
-   3. SELL (100)          – Sell fish to bank the profits
+   3. SELL (100)         – Sell fish to bank the profits
    4. REPEAT steps 1–3 for a set number of cycles
-   5. PRESTIGE            – After enough cycles, prestige to reset & multiply
+   5. PRESTIGE           – After enough cycles, prestige to reset & multiply
    6. Loop forever
 
    This is optimal because:
@@ -293,8 +326,8 @@ local MacroLabel   = MacroTab:CreateLabel("Fish → Upgrade → Sell → Prestig
    - Prestige only after several sell cycles so you maximize gains per prestige
 ]]
 
-local MacroCyclesBeforePrestige = 5  -- how many fish/upgrade/sell cycles before prestige
-local MacroFishClicks = 50           -- fish clicks per cycle
+local MacroCyclesBeforePrestige = 5
+local MacroFishClicks = 50
 local MacroRunning = false
 
 local MacroCyclesInput = MacroTab:CreateInput({
@@ -303,6 +336,7 @@ local MacroCyclesInput = MacroTab:CreateInput({
    RemoveTextAfterFocusLost = false,
    Callback = function(Value)
       MacroCyclesBeforePrestige = tonumber(Value) or 5
+      Log("Macro", "Cycles before prestige set to " .. MacroCyclesBeforePrestige)
    end,
 })
 
@@ -312,6 +346,7 @@ local MacroFishInput = MacroTab:CreateInput({
    RemoveTextAfterFocusLost = false,
    Callback = function(Value)
       MacroFishClicks = tonumber(Value) or 50
+      Log("Macro", "Fish clicks per cycle set to " .. MacroFishClicks)
    end,
 })
 
@@ -321,36 +356,47 @@ local MacroToggle = MacroTab:CreateToggle({
    Flag = "ProgressionMacroToggle",
    Callback = function(Value)
       MacroRunning = Value
+      Log("Macro", "Toggled " .. (Value and "ON" or "OFF"))
 
       if MacroRunning then
          StartManagedLoop("ProgressionMacro", function()
             return MacroRunning
          end, function()
-            for cycle = 1, MacroCyclesBeforePrestige do
-               if not MacroRunning then break end
+            Log("Macro", "=== Starting new macro round ===")
 
-               -- Step 1: Fish rapidly
+            for cycle = 1, MacroCyclesBeforePrestige do
+               if not MacroRunning then
+                  Log("Macro", "Stopped during cycle " .. cycle)
+                  break
+               end
+
+               Log("Macro", "Cycle " .. cycle .. "/" .. MacroCyclesBeforePrestige .. " – Step 1: Fishing x" .. MacroFishClicks)
                for i = 1, MacroFishClicks do
                   if not MacroRunning then break end
                   ClickFish:FireServer()
                   task.wait(0.1)
                end
 
-               -- Step 2: Buy all upgrades 1–11
+               if not MacroRunning then break end
+
+               Log("Macro", "Cycle " .. cycle .. " – Step 2: Buying upgrades 1-11")
                for upgradeId = 1, 11 do
                   if not MacroRunning then break end
                   BuyUpgrade:FireServer(upgradeId)
                   task.wait(0.15)
                end
 
-               -- Step 3: Sell fish
+               if not MacroRunning then break end
+
+               Log("Macro", "Cycle " .. cycle .. " – Step 3: Selling fish")
                SellFish:FireServer(100)
                task.wait(0.5)
             end
 
-            -- Step 4: Prestige after all cycles
             if MacroRunning then
+               Log("Macro", "All cycles done – Step 4: Prestiging!")
                DoPrestige:FireServer()
+               Log("Macro", "Prestiged! Waiting 2s then restarting round...")
                task.wait(2)
             end
 
@@ -363,6 +409,7 @@ local MacroToggle = MacroTab:CreateToggle({
 -- ─────────────────────────────────────────────
 -- Anti-AFK
 -- ─────────────────────────────────────────────
+Log("AntiAFK", "Setting up anti-AFK...")
 if getconnections then
     for _, connection in pairs(getconnections(player.Idled)) do
         if connection.Disable then
@@ -371,12 +418,16 @@ if getconnections then
             connection:Disconnect()
         end
     end
+    Log("AntiAFK", "Using getconnections method – Idled event disabled")
 else
     player.Idled:Connect(function()
+        Log("AntiAFK", "Idle detected – simulating input to prevent kick")
         VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
         task.wait(1)
         VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
     end)
+    Log("AntiAFK", "Using VirtualUser method – connected to Idled event")
 end
 
 Rayfield:LoadConfiguration()
+Log("Init", "Script fully loaded! All systems ready.")
