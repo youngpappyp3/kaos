@@ -144,19 +144,16 @@ local AutoMinigameResultToggle = FishTab:CreateToggle({
          local overlay = FindMinigameOverlay()
          if overlay then
             if overlay ~= LastHandledOverlay then
-               local args = {
-                  [1] = true,
-                  [2] = false,
-               }
-               MinigameResult:FireServer(unpack(args))
+               -- New popup detected – fire instantly
+               MinigameResult:FireServer(true, false)
                LastHandledOverlay = overlay
-               return 0.1
             end
          else
+            -- Overlay gone – reset so the NEXT popup is caught immediately
             LastHandledOverlay = nil
          end
 
-         return 0.03
+         return 0.01  -- poll every 10ms for near-instant detection
       end, 0.5)
    end,
 })
