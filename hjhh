@@ -8,419 +8,750 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
 local player = Players.LocalPlayer
-
--- ─────────────────────────────────────────────
--- Log helper
--- ─────────────────────────────────────────────
-local function Log(tag, msg)
-    print(string.format("[FishScript][%s] %s", tag, msg))
-end
-
-Log("Init", "Script loading...")
-
-local ClickFish     = ReplicatedStorage:WaitForChild("ClickFish",     9e9)
-local ClickBobber   = ReplicatedStorage:WaitForChild("ClickBobber",   9e9)
-local MinigameResult = ReplicatedStorage:WaitForChild("MinigameResult", 9e9)
-local BuyUpgrade    = ReplicatedStorage:WaitForChild("BuyUpgrade",    9e9)
-local SellFish      = ReplicatedStorage:WaitForChild("SellFish",      9e9)
-local DoPrestige    = ReplicatedStorage:WaitForChild("DoPrestige",    9e9)
-
-Log("Init", "All RemoteEvents found OK")
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local SellPotatoes = Remotes:WaitForChild("SellPotatoes")
+local SellGoldenPotatoes = Remotes:WaitForChild("SellGoldenPotatoes")
+local PerformClick = Remotes:WaitForChild("PerformClick")
+local PerformAscension = Remotes:WaitForChild("PerformAscension")
+local PerformPrestige = Remotes:WaitForChild("PerformPrestige")
+local PurchaseClickUpgrade = Remotes:WaitForChild("PurchaseClickUpgrade")
+local PurchaseGenerator = Remotes:WaitForChild("PurchaseGenerator")
+local DeleteGenerator = Remotes:WaitForChild("DeleteGenerator")
+local PurchaseShopPotato = Remotes:WaitForChild("PurchaseShopPotato")
+local DigSquare = Remotes:WaitForChild("DigSquare")
 
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
 local Window = Rayfield:CreateWindow({
-   Name = "Fish Script V1",
-   LoadingTitle = "Fish Game Hub",
-   LoadingSubtitle = "by Script",
+   Name = "Potato Script V3",
+   LoadingTitle = "Idle Potato Game",
+   LoadingSubtitle = "by Totemoflol",
    ConfigurationSaving = {
       Enabled = true,
       FolderName = nil,
-      FileName = "FishHubConfig"
+      FileName = "TatoHubConfig"
    },
    KeySystem = false
 })
 
-local FishTab      = Window:CreateTab("Fish",      4483362458)
-local UpgradeTab   = Window:CreateTab("Upgrades",  4483362458)
-local SellTab      = Window:CreateTab("Sell",      4483362458)
-local PrestigeTab  = Window:CreateTab("Prestige",  4483362458)
-local MacroTab     = Window:CreateTab("Macro",     4483362458)
+local SellTab = Window:CreateTab("Sell", 4483362458)
+local AutoTab = Window:CreateTab("Auto", 4483362458)
+local RebirthTab = Window:CreateTab("Rebirths", 4483362458)
+local MacroTab = Window:CreateTab("Macro", 4483362458)
+local MiscTab = Window:CreateTab("Misc", 4483362458)
+local ShopTab = Window:CreateTab("Shop", 4483362458)
+local UpgradeTab = Window:CreateTab("Upgrades", 4483362458)
+local DigTab = Window:CreateTab("Dig", 4483362458)
 
-Log("Init", "UI created OK")
+local PotatoGameGui = player.PlayerGui:WaitForChild("PotatoGameGUI")
+local CurrencyFrame = PotatoGameGui.Background.ClickerArea.ClickerContainer.CurrencyFrame
 
--- ─────────────────────────────────────────────
--- Shared managed loop helper
--- ─────────────────────────────────────────────
+local function ParseCurrencyAmount(text)
+   local sanitized = tostring(text or ""):gsub(",", ""):gsub("%s+", "")
+   local numericText, suffix = sanitized:match("([%-]?[%d%.]+)([A-Za-z]+)")
+   local amount = tonumber(numericText or sanitized:match("%-?[%d%.]+"))
+   if not amount then
+      return 0
+   end
+
+   if not suffix then
+      return amount
+   end
+
+   local multipliers = {
+      K = 1e3,
+      M = 1e6,
+      B = 1e9,
+      T = 1e12,
+      Qa = 1e15,
+      Qi = 1e18,
+      Sx = 1e21,
+      Sp = 1e24,
+      Oc = 1e27,
+      No = 1e30,
+      Dc = 1e33,
+   }
+
+   return amount * (multipliers[suffix] or 1)
+end
+
+local function FindCurrencyLabel(rowNames, countNames)
+   for _, rowName in ipairs(rowNames) do
+      local row = CurrencyFrame:FindFirstChild(rowName, true)
+      if row then
+         for _, countName in ipairs(countNames) do
+            local countLabel = row:FindFirstChild(countName, true)
+            if countLabel then
+               return countLabel
+            end
+         end
+
+         local fallbackLabel = row:FindFirstChildWhichIsA("TextLabel", true)
+         if fallbackLabel then
+            return fallbackLabel
+         end
+      end
+   end
+end
+
+local GoldenCountLabel = FindCurrencyLabel({"GoldenRow"}, {"GoldenCount"})
+local PotatoCountLabel = FindCurrencyLabel({"PotatoRow", "PotatoesRow", "NormalRow"}, {"PotatoCount", "Count"})
+
+local function FindStaminaLabel()
+   local preferredNames = {
+      "StaminaValue",
+      "StaminaLabel",
+      "StaminaText",
+      "CurrentStamina"
+   }
+
+   for _, name in ipairs(preferredNames) do
+      local label = PotatoGameGui:FindFirstChild(name, true)
+      if label and label:IsA("TextLabel") then
+         return label
+      end
+   end
+
+   for _, descendant in ipairs(PotatoGameGui:GetDescendants()) do
+      if descendant:IsA("TextLabel") then
+         local text = tostring(descendant.Text or "")
+         if text:match("^%s*[%d,%.]+%s*/%s*[%d,%.]+%s*$") then
+            return descendant
+         end
+      end
+   end
+end
+
+local StaminaLabel = FindStaminaLabel()
+
+local function GetStaminaValues()
+   if not StaminaLabel or not StaminaLabel.Parent then
+      StaminaLabel = FindStaminaLabel()
+   end
+
+   if not StaminaLabel then
+      return nil, nil
+   end
+
+   local currentText, maxText = tostring(StaminaLabel.Text or ""):match("([%d,%.]+)%s*/%s*([%d,%.]+)")
+   if not currentText or not maxText then
+      return nil, nil
+   end
+
+   return ParseCurrencyAmount(currentText), ParseCurrencyAmount(maxText)
+end
+
+local function GetGoldenCountLabel()
+   if not GoldenCountLabel or not GoldenCountLabel.Parent then
+      GoldenCountLabel = FindCurrencyLabel({"GoldenRow"}, {"GoldenCount"})
+   end
+
+   return GoldenCountLabel
+end
+
+local function GetPotatoCountLabel()
+   if not PotatoCountLabel or not PotatoCountLabel.Parent then
+      PotatoCountLabel = FindCurrencyLabel({"PotatoRow", "PotatoesRow", "NormalRow"}, {"PotatoCount", "Count"})
+   end
+
+   return PotatoCountLabel
+end
+
 local ActiveLoops = {}
 
 local function StartManagedLoop(loopName, isRunning, tickFn, errorDelay)
    if ActiveLoops[loopName] then
-      Log("Loop", loopName .. " already running, skipping duplicate start")
       return
    end
 
    ActiveLoops[loopName] = true
-   Log("Loop", loopName .. " started")
-
    task.spawn(function()
       while isRunning() do
-         local ok, result = pcall(tickFn)
+         local ok, waitTime = pcall(tickFn)
          if ok then
-            if type(result) == "number" and result > 0 then
-               task.wait(result)
+            if type(waitTime) == "number" and waitTime > 0 then
+               task.wait(waitTime)
             end
          else
-            -- result is the error message when pcall fails
-            Log("Loop:ERROR", loopName .. " error: " .. tostring(result))
             task.wait(errorDelay or 1)
          end
       end
 
       ActiveLoops[loopName] = nil
-      Log("Loop", loopName .. " stopped")
    end)
 end
 
--- ─────────────────────────────────────────────
--- Minigame overlay finder
--- ─────────────────────────────────────────────
-local function FindMinigameOverlay()
-   local playerGui = player:FindFirstChildOfClass("PlayerGui")
-   if not playerGui then
-      return nil
-   end
-
-   for _, guiObject in ipairs(playerGui:GetDescendants()) do
-      if guiObject.Name == "MinigameOverlay"
-         and guiObject:IsA("GuiObject")
-         and guiObject.Visible then
-         return guiObject
+local function SellCurrentGoldenPotatoes()
+   local goldenLabel = GetGoldenCountLabel()
+   if goldenLabel then
+      local gold = ParseCurrencyAmount(goldenLabel.Text)
+      if gold > 0 then
+         SellGoldenPotatoes:FireServer(gold)
       end
    end
-
-   return nil
 end
 
--- ─────────────────────────────────────────────
--- AUTO FISH TAB
--- ─────────────────────────────────────────────
-local FishSection = FishTab:CreateSection("Auto Tap")
-local FishLabel   = FishTab:CreateLabel("Automatically taps every 0.1s")
+local function SellCurrentPotatoes()
+   local potatoLabel = GetPotatoCountLabel()
+   if potatoLabel then
+      local potatoes = ParseCurrencyAmount(potatoLabel.Text)
+      if potatoes > 0 then
+         SellPotatoes:FireServer(potatoes)
+      end
+   end
+end
 
-local AutoFishing = false
-local AutoFishToggle = FishTab:CreateToggle({
-   Name = "Auto Tap",
-   CurrentValue = false,
-   Flag = "AutoFishToggle",
+local Amount = 1
+local Delay = 1
+local Running = false
+local Label = SellTab:CreateLabel("Auto Sell")
+local AmountInput = SellTab:CreateInput({
+   Name = "Amount Of Gold Potatoes",
+   PlaceholderText = "Enter Amount",
+   RemoveTextAfterFocusLost = false,
    Callback = function(Value)
-      AutoFishing = Value
-      Log("AutoFish", "Toggled " .. (Value and "ON" or "OFF"))
+      Amount = tonumber(Value) or 0
+   end,
+})
+local DelayInput = SellTab:CreateInput({
+   Name = "Delay (seconds)",
+   PlaceholderText = "Enter Delay",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Value)
+      Delay = tonumber(Value) or 0
+   end,
+})
+local AutoSellToggle = SellTab:CreateToggle({
+   Name = "Auto Sell",
+   CurrentValue = false,
+   Flag = "AutoSellToggle",
+   Callback = function(Value)
+      Running = Value
 
-      if AutoFishing then
-         StartManagedLoop("AutoFish", function()
-            return AutoFishing
+      if Running then
+         StartManagedLoop("AutoSellGoldAmount", function()
+            return Running
          end, function()
-            ClickFish:FireServer()
-            return 0.1
-         end, 0.5)
+            SellGoldenPotatoes:FireServer(Amount)
+            return Delay
+         end, 1)
       end
    end,
 })
 
-local AutoFishResult = false
-local AutoFishResultToggle = FishTab:CreateToggle({
-   Name = "Auto Click Bobber",
-   CurrentValue = false,
-   Flag = "AutoFishResultToggle",
-   Callback = function(Value)
-      AutoFishResult = Value
-      Log("AutoBobber", "Toggled " .. (Value and "ON" or "OFF"))
+local Section = SellTab:CreateSection("Auto Sell Golden Potatoes")
 
-      if AutoFishResult then
-         StartManagedLoop("AutoClickBobber", function()
-            return AutoFishResult
+local selling = false
+
+local SellAllToggle = SellTab:CreateToggle({
+   Name = "Auto Sell Golden Potatoes",
+   CurrentValue = false,
+   Flag = "AutoSellGolden",
+   Callback = function(state)
+      selling = state
+   end,
+})
+
+StartManagedLoop("AutoSellGoldenAll", function()
+   return true
+end, function()
+   if selling then
+      SellCurrentGoldenPotatoes()
+   end
+
+   return 0.15
+end, 0.5)
+
+local PotatoDelay = 10
+local PotatoSelling = false
+local PotatoSellLabel = SellTab:CreateLabel("Auto Sell Potatoes")
+local PotatoDelayInput = SellTab:CreateInput({
+   Name = "Potato Delay (seconds)",
+   PlaceholderText = "Enter Delay",
+   RemoveTextAfterFocusLost = false,
+   Callback = function(Value)
+      PotatoDelay = tonumber(Value) or 0
+   end,
+})
+local AutoSellPotatoesToggle = SellTab:CreateToggle({
+   Name = "Auto Sell Potatoes",
+   CurrentValue = false,
+   Flag = "AutoSellPotatoesToggle",
+   Callback = function(Value)
+      PotatoSelling = Value
+
+      if PotatoSelling then
+         StartManagedLoop("AutoSellPotatoes", function()
+            return PotatoSelling
          end, function()
-            ClickBobber:FireServer()
-            return 0.15
-         end, 0.5)
+            SellCurrentPotatoes()
+            return PotatoDelay
+         end, 1)
       end
    end,
 })
 
-local AutoMinigameResult = false
-local LastHandledOverlay = nil
-local AutoMinigameResultToggle = FishTab:CreateToggle({
-   Name = "Auto Complete Minigame",
+local AutoClickLabel = AutoTab:CreateLabel("Auto Clicker")
+local Clicking = false
+local AutoClickToggle = AutoTab:CreateToggle({
+   Name = "Auto Click (0.005s)",
    CurrentValue = false,
-   Flag = "AutoMinigameResultToggle",
-   Callback = function(Value)
-      AutoMinigameResult = Value
-      Log("AutoMinigame", "Toggled " .. (Value and "ON" or "OFF"))
+   Flag = "AutoClickToggle",
+   Callback = function(Clicks)
+      Clicking = Clicks
 
-      if not AutoMinigameResult then
-         LastHandledOverlay = nil
-         return
+      if Clicking then
+         StartManagedLoop("AutoClick", function()
+            return Clicking
+         end, function()
+            PerformClick:FireServer()
+            return 0.005
+         end, 0.25)
       end
-
-      StartManagedLoop("AutoMinigameResult", function()
-         return AutoMinigameResult
-      end, function()
-         local overlay = FindMinigameOverlay()
-         if overlay then
-            if overlay ~= LastHandledOverlay then
-               -- New popup detected – fire instantly
-               Log("AutoMinigame", "MinigameOverlay detected! Firing MinigameResult(true, false) multiple times")
-               
-               -- Fire 2 to 3 times with slightly random timing to ensure it registers
-               task.spawn(function()
-                  local fires = math.random(2, 3)
-                  for i = 1, fires do
-                     MinigameResult:FireServer(true, false)
-                     if i < fires then
-                        task.wait(math.random(3, 8) / 100) -- Wait between 0.03s - 0.08s
-                     end
-                  end
-               end)
-               
-               LastHandledOverlay = overlay
-               Log("AutoMinigame", "Fired OK – waiting for overlay to disappear")
-            end
-         else
-            if LastHandledOverlay ~= nil then
-               -- overlay just disappeared
-               Log("AutoMinigame", "Overlay gone – ready for next popup")
-            end
-            LastHandledOverlay = nil
-         end
-
-         return 0.01  -- poll every 10ms for near-instant detection
-      end, 0.5)
    end,
 })
 
--- ─────────────────────────────────────────────
--- AUTO UPGRADE TAB
--- ─────────────────────────────────────────────
 local UpgradeSection = UpgradeTab:CreateSection("Auto Upgrade")
-local UpgradeLabel   = UpgradeTab:CreateLabel("Loops through all 11 upgrades continuously")
-
-local UpgradeIds = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}
-
-local AutoUpgrading = false
+local UpgradeLabel = UpgradeTab:CreateLabel("Auto Upgrade Loop")
+local AutoUpgradeOrder = {
+   "stronger_hands",
+   "padded_gloves",
+   "steel_trowel",
+   "golden_trowel",
+   "farmers_instinct",
+   "golden_touch",
+   "collectors_guidebook",
+   "premium_fertilizer",
+   "lucky_fertilizer",
+   "prize_winning_seeds",
+   "midas_touch"
+}
+local AutoUpgradeLoop = false
 local AutoUpgradeToggle = UpgradeTab:CreateToggle({
-   Name = "Auto Upgrade",
+   Name = "Auto Upgrade Loop",
    CurrentValue = false,
-   Flag = "AutoUpgradeToggle",
+   Flag = "AutoUpgradeLoop",
    Callback = function(Value)
-      AutoUpgrading = Value
-      Log("AutoUpgrade", "Toggled " .. (Value and "ON" or "OFF"))
+      AutoUpgradeLoop = Value
 
-      if AutoUpgrading then
-         StartManagedLoop("AutoUpgrade", function()
-            return AutoUpgrading
+      if AutoUpgradeLoop then
+         StartManagedLoop("AutoUpgradeLoop", function()
+            return AutoUpgradeLoop
          end, function()
-            for _, id in ipairs(UpgradeIds) do
-               if not AutoUpgrading then
-                  Log("AutoUpgrade", "Stopped mid-cycle")
+            for _, upgrade in ipairs(AutoUpgradeOrder) do
+               if not AutoUpgradeLoop then
                   break
                end
 
-               Log("AutoUpgrade", "Buying upgrade ID: " .. id)
-               BuyUpgrade:FireServer(id)
+               PurchaseClickUpgrade:FireServer(upgrade)
                task.wait(0.2)
             end
 
-            Log("AutoUpgrade", "Cycle complete – waiting 1s before next round")
             return 1
          end, 1)
       end
    end,
 })
 
--- ─────────────────────────────────────────────
--- AUTO SELL TAB
--- ─────────────────────────────────────────────
-local SellSection = SellTab:CreateSection("Auto Sell")
-local SellLabel   = SellTab:CreateLabel("Auto sells fish every set interval")
-
-local SellDelay = 15
-local SellDelayInput = SellTab:CreateInput({
-   Name = "Sell Interval (seconds)",
-   PlaceholderText = "Default: 15",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Value)
-      SellDelay = tonumber(Value) or 15
-      Log("AutoSell", "Sell interval set to " .. SellDelay .. "s")
-   end,
-})
-
-local AutoSelling = false
-local AutoSellToggle = SellTab:CreateToggle({
-   Name = "Auto Sell Fish",
+local DigSection = DigTab:CreateSection("Digging")
+local DigLabel = DigTab:CreateLabel("Smart Auto Dig")
+local AutoDig = false
+local DigSquareIndex = 1
+local DigGridColumns = 6
+local DigGridRows = 3
+local DigInterval = 1.1
+local DigRegenDelay = 1.5
+local DigStaminaCost = 5
+local DigBoardSize = DigGridColumns * DigGridRows
+local AutoDigToggle = DigTab:CreateToggle({
+   Name = "Auto Dig",
    CurrentValue = false,
-   Flag = "AutoSellFishToggle",
+   Flag = "AutoDigToggle",
    Callback = function(Value)
-      AutoSelling = Value
-      Log("AutoSell", "Toggled " .. (Value and "ON" or "OFF"))
+      AutoDig = Value
 
-      if AutoSelling then
-         StartManagedLoop("AutoSellFish", function()
-            return AutoSelling
+      if AutoDig then
+         StartManagedLoop("AutoDig", function()
+            return AutoDig
          end, function()
-            Log("AutoSell", "Selling fish (qty: 100)")
-            SellFish:FireServer(100)
-            Log("AutoSell", "Sold! Next sell in " .. SellDelay .. "s")
-            return SellDelay
+            local currentStamina, maxStamina = GetStaminaValues()
+
+            if currentStamina and maxStamina and currentStamina <= 0 then
+               return DigRegenDelay
+            elseif currentStamina and currentStamina < DigStaminaCost then
+               return DigRegenDelay
+            end
+
+            DigSquare:FireServer(DigSquareIndex)
+            DigSquareIndex = DigSquareIndex + 1
+
+            if DigSquareIndex > DigBoardSize then
+               DigSquareIndex = 1
+               return math.max(DigInterval, 1.2)
+            end
+
+            return DigInterval
          end, 1)
+      else
+         DigSquareIndex = 1
       end
    end,
 })
 
--- ─────────────────────────────────────────────
--- AUTO PRESTIGE TAB
--- ─────────────────────────────────────────────
-local PrestigeSection = PrestigeTab:CreateSection("Auto Prestige")
-local PrestigeLabel   = PrestigeTab:CreateLabel("Fires DoPrestige on a timer")
+local PrestigeSection = RebirthTab:CreateSection("Ascension")
+local AscendLabel = RebirthTab:CreateLabel("Ascension Upgrades")
+local MacroAscensionOrder = {"abundance", "prestige", "thrifty"}
+local MacroAscensionIndex = 1
+local AbundanceAscend = false
+local AscendToggle = RebirthTab:CreateToggle({
+   Name = "Abundance Ascension",
+   CurrentValue = false,
+   Flag = "AutoAscend",
+   Callback = function(abundance)
+      AbundanceAscend = abundance
 
-local PrestigeDelay = 60
-local PrestigeDelayInput = PrestigeTab:CreateInput({
-   Name = "Prestige Interval (seconds)",
-   PlaceholderText = "Default: 60",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Value)
-      PrestigeDelay = tonumber(Value) or 60
-      Log("AutoPrestige", "Prestige interval set to " .. PrestigeDelay .. "s")
+      if AbundanceAscend then
+         StartManagedLoop("AbundanceAscension", function()
+            return AbundanceAscend
+         end, function()
+            PerformAscension:FireServer("abundance")
+            return 60
+         end, 2)
+      end
    end,
 })
 
-local AutoPrestiging = false
-local AutoPrestigeToggle = PrestigeTab:CreateToggle({
-   Name = "Auto Prestige",
+local PrestigeAscend = false
+
+local PrestigeAscendToggle = RebirthTab:CreateToggle({
+   Name = "Prestige Ascension",
+   CurrentValue = false,
+   Flag = "PrestigeAscension",
+   Callback = function(PrestigeA)
+      PrestigeAscend = PrestigeA
+
+      if PrestigeAscend then
+         StartManagedLoop("PrestigeAscension", function()
+            return PrestigeAscend
+         end, function()
+            PerformAscension:FireServer("prestige")
+            return 60
+         end, 2)
+      end
+   end,
+})
+
+local ThriftAscend = false
+local ThriftyAscendToggle = RebirthTab:CreateToggle({
+   Name = "Thrifty Ascension",
+   CurrentValue = false,
+   Flag = "ThriftyAscension",
+   Callback = function(ThriftyAscend)
+      ThriftAscend = ThriftyAscend
+
+      if ThriftAscend then
+         StartManagedLoop("ThriftyAscension", function()
+            return ThriftAscend
+         end, function()
+            PerformAscension:FireServer("thrifty")
+            return 60
+         end, 2)
+      end
+   end,
+})
+
+local Divider = RebirthTab:CreateSection("Prestige")
+local PrestigeLabel = RebirthTab:CreateLabel("Auto Prestige")
+local Prestiging = false
+local AutoPrestigeToggle = RebirthTab:CreateToggle({
+   Name = "Auto Prestige (32s)",
    CurrentValue = false,
    Flag = "AutoPrestigeToggle",
-   Callback = function(Value)
-      AutoPrestiging = Value
-      Log("AutoPrestige", "Toggled " .. (Value and "ON" or "OFF"))
-
-      if AutoPrestiging then
+   Callback = function(APrestige)
+      Prestiging = APrestige
+      if Prestiging then
          StartManagedLoop("AutoPrestige", function()
-            return AutoPrestiging
+            return Prestiging
          end, function()
-            Log("AutoPrestige", "Firing DoPrestige!")
-            DoPrestige:FireServer()
-            Log("AutoPrestige", "Prestiged! Next in " .. PrestigeDelay .. "s")
-            return PrestigeDelay
-         end, 1)
+            PerformPrestige:FireServer()
+            return 32
+         end, 2)
       end
    end,
 })
 
--- ─────────────────────────────────────────────
--- MACRO TAB
--- ─────────────────────────────────────────────
-local MacroSection = MacroTab:CreateSection("Full Progression Macro")
-local MacroLabel   = MacroTab:CreateLabel("Fish → Upgrade → Sell → Prestige")
+local MacroSection = MacroTab:CreateSection("Core Macros")
+local MacroLabel = MacroTab:CreateLabel("Progression / SuperHuman")
 
---[[
-   MACRO ORDER EXPLAINED:
-   1. FISH (x50 clicks)  – Build up fish inventory fast
-   2. UPGRADE (1–11)     – Spend currency on all upgrades while we have it
-   3. SELL (100)         – Sell fish to bank the profits
-   4. REPEAT steps 1–3 for a set number of cycles
-   5. PRESTIGE           – After enough cycles, prestige to reset & multiply
-   6. Loop forever
+local MPrestige = PerformPrestige
+local MGoldenSell = SellGoldenPotatoes
+local MWisdom = PurchaseClickUpgrade
+local MEnergy = PurchaseClickUpgrade
+local MOmni = PurchaseClickUpgrade
+local MHarvest = PurchaseClickUpgrade
+local MGalactic = PurchaseClickUpgrade
 
-   This is optimal because:
-   - You want to farm fish BEFORE upgrading (upgrades cost currency from sells)
-   - Upgrades boost your fish value, so buy them before the next sell
-   - Sell AFTER upgrading so each sell is worth more
-   - Prestige only after several sell cycles so you maximize gains per prestige
-]]
+local SuperHumanMacroDivider = MacroTab:CreateSection("SuperHuman Macro")
+local SuperHumanMacroLabel = MacroTab:CreateLabel("SuperHuman Macro")
 
-local MacroCyclesBeforePrestige = 5
-local MacroFishClicks = 50
-local MacroRunning = false
+local superhumanmacro = false
 
-local MacroCyclesInput = MacroTab:CreateInput({
-   Name = "Cycles Before Prestige",
-   PlaceholderText = "Default: 5",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Value)
-      MacroCyclesBeforePrestige = tonumber(Value) or 5
-      Log("Macro", "Cycles before prestige set to " .. MacroCyclesBeforePrestige)
-   end,
+local SuperMacroV1 = {
+    {"prestige", nil, 2.6},
+
+    {"sell", 1_000_000, 0.05},
+    {"wisdom", nil, 0.8},
+
+    {"sell", 428_700, 0.05},
+    {"wisdom", nil, 1.9},
+
+    {"sell", 140_000_000, 0.05},
+    {"energy", nil, 0.3},
+
+    {"sell", 150_000_000, 0},
+    {"energy", nil, 0.6},
+
+    {"sell", 300_000_000, 0},
+    {"energy", nil, 1},
+
+    {"sell", 2_870_000_000, 0},
+    {"omni", nil, 1},
+
+    {"sell", 4_000_000_000, 0},
+    {"omni", nil, 1},
+
+    {"sell", 8_000_000_000, 0},
+    {"harvest", nil, 0.6},
+
+    {"sell", 27_830_000_000, 0},
+    {"harvest", nil, 0.05},
+
+    {"galactic", nil, 0.5},
+
+    {"sell", 40_670_000_000, 0},
+    {"galactic", nil, 20.5},
+
+    {"sell", 3_000_000_000_000, 0.5}
+}
+
+local MacroV1Toggle = MacroTab:CreateToggle({
+    Name = "SuperHumanMacro V1",
+    CurrentValue = false,
+    Flag = "SuperHumanMacroV1",
+
+    Callback = function(superhumanmacrov1)
+        superhumanmacro = superhumanmacrov1
+        if superhumanmacro then
+            StartManagedLoop("SuperHumanMacro", function()
+                return superhumanmacro
+            end, function()
+                for _, step in ipairs(SuperMacroV1) do
+                    if not superhumanmacro then
+                        break
+                    end
+
+                    local action, value, delay = unpack(step)
+
+                    if action == "prestige" then
+                        MPrestige:FireServer()
+
+                    elseif action == "sell" then
+                        MGoldenSell:FireServer(value)
+
+                    elseif action == "wisdom" then
+                        MWisdom:FireServer("grandfathers_wisdom")
+
+                    elseif action == "energy" then
+                        MEnergy:FireServer("infinite_energy")
+
+                    elseif action == "omni" then
+                        MOmni:FireServer("omnipotato_blessing")
+
+                    elseif action == "harvest" then
+                        MHarvest:FireServer("transcendent_harvest")
+
+                    elseif action == "galactic" then
+                        MGalactic:FireServer("galactic_harvest")
+                    end
+
+                    task.wait(delay)
+                end
+            end, 1)
+        end
+    end,
 })
 
-local MacroFishInput = MacroTab:CreateInput({
-   Name = "Fish Clicks Per Cycle",
-   PlaceholderText = "Default: 50",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Value)
-      MacroFishClicks = tonumber(Value) or 50
-      Log("Macro", "Fish clicks per cycle set to " .. MacroFishClicks)
-   end,
+local ProgressionMacroDivider = MacroTab:CreateSection("Progression Macro")
+local ProgressionMacroLabel = MacroTab:CreateLabel("Progression Macro")
+local progressionmacro = false
+local ProgressionCoreUpgradeOrder = {
+   "grandfathers_wisdom",
+   "infinite_energy",
+   "omnipotato_blessing",
+    "transcendent_harvest",
+    "galactic_harvest"
+}
+local ProgressionSellDelay = 20
+local ProgressionAscensionDelay = 60
+local ProgressionLastSellAt = 0
+local ProgressionLastAscensionAt = 0
+local ProgressionMacroToggle = MacroTab:CreateToggle({
+    Name = "Progression Macro V1",
+    CurrentValue = false,
+    Flag = "ProgressionMacroV1",
+    Callback = function(Value)
+        progressionmacro = Value
+
+        if progressionmacro then
+            ProgressionLastSellAt = os.clock()
+            ProgressionLastAscensionAt = os.clock()
+            StartManagedLoop("ProgressionMacroV1", function()
+                return progressionmacro
+            end, function()
+                for _, upgrade in ipairs(AutoUpgradeOrder) do
+                    if not progressionmacro then
+                        break
+                    end
+
+                    PurchaseClickUpgrade:FireServer(upgrade)
+                    task.wait(0.15)
+                end
+
+                for _, upgrade in ipairs(ProgressionCoreUpgradeOrder) do
+                    if not progressionmacro then
+                        break
+                    end
+
+                    PurchaseClickUpgrade:FireServer(upgrade)
+                    task.wait(0.3)
+                end
+
+                local now = os.clock()
+                if now - ProgressionLastSellAt >= ProgressionSellDelay then
+                  SellCurrentPotatoes()
+                  SellCurrentGoldenPotatoes()
+                  PerformPrestige:FireServer()
+                  ProgressionLastSellAt = now
+
+                  if now - ProgressionLastAscensionAt >= ProgressionAscensionDelay then
+                     PerformAscension:FireServer(MacroAscensionOrder[MacroAscensionIndex])
+                     MacroAscensionIndex = MacroAscensionIndex + 1
+                     if MacroAscensionIndex > #MacroAscensionOrder then
+                        MacroAscensionIndex = 1
+                     end
+                     ProgressionLastAscensionAt = now
+                  end
+
+                  return 1
+                end
+
+                return 0.5
+            end, 1)
+        end
+    end,
 })
 
-local MacroToggle = MacroTab:CreateToggle({
-   Name = "Progression Macro",
+local NotificationContainer = player.PlayerGui:WaitForChild("PotatoGameGUI"):WaitForChild("NotificationContainer")
+local NoNotifToggle = MiscTab:CreateToggle({
+   Name = "Disable Notifications",
    CurrentValue = false,
-   Flag = "ProgressionMacroToggle",
-   Callback = function(Value)
-      MacroRunning = Value
-      Log("Macro", "Toggled " .. (Value and "ON" or "OFF"))
+   Flag = "DisableNotifications",
+   Callback = function(DisableNotifications)
+      NotificationContainer.Visible = not DisableNotifications
+   end,
+})
 
-      if MacroRunning then
-         StartManagedLoop("ProgressionMacro", function()
-            return MacroRunning
+local GeneratorFarm = false
+
+local GeneratorFarmToggle = MiscTab:CreateToggle({
+   Name = "Auto Farm Generator",
+   CurrentValue = false,
+   Flag = "GeneratorFarm",
+   Callback = function(GFarm)
+      GeneratorFarm = GFarm
+
+      if GeneratorFarm then
+         StartManagedLoop("GeneratorFarm", function()
+            return GeneratorFarm
          end, function()
-            Log("Macro", "=== Starting new macro round ===")
-
-            for cycle = 1, MacroCyclesBeforePrestige do
-               if not MacroRunning then
-                  Log("Macro", "Stopped during cycle " .. cycle)
-                  break
-               end
-
-               Log("Macro", "Cycle " .. cycle .. "/" .. MacroCyclesBeforePrestige .. " – Step 1: Fishing x" .. MacroFishClicks)
-               for i = 1, MacroFishClicks do
-                  if not MacroRunning then break end
-                  ClickFish:FireServer()
-                  task.wait(0.1)
-               end
-
-               if not MacroRunning then break end
-
-               Log("Macro", "Cycle " .. cycle .. " – Step 2: Buying upgrades 1-11")
-               for upgradeId = 1, 11 do
-                  if not MacroRunning then break end
-                  BuyUpgrade:FireServer(upgradeId)
-                  task.wait(0.15)
-               end
-
-               if not MacroRunning then break end
-
-               Log("Macro", "Cycle " .. cycle .. " – Step 3: Selling fish")
-               SellFish:FireServer(100)
-               task.wait(0.5)
-            end
-
-            if MacroRunning then
-               Log("Macro", "All cycles done – Step 4: Prestiging!")
-               DoPrestige:FireServer()
-               Log("Macro", "Prestiged! Waiting 2s then restarting round...")
-               task.wait(2)
-            end
-
-            return 1
+            PurchaseGenerator:FireServer("potato_seedling")
+            DeleteGenerator:FireServer("potato_seedling")
+            return 0.05
          end, 1)
       end
    end,
 })
 
--- ─────────────────────────────────────────────
--- Anti-AFK
--- ─────────────────────────────────────────────
-Log("AntiAFK", "Setting up anti-AFK...")
+local AutoBuyProductionPotion = false
+local ProductionAutoBuyToggle = ShopTab:CreateToggle({
+   Name = "Production AutoBuy",
+   CurrentValue = false,
+   Flag = "ProductionAutoBuy",
+   Callback = function(ProductionPotion)
+      AutoBuyProductionPotion = ProductionPotion
+      if AutoBuyProductionPotion then
+         StartManagedLoop("ProductionAutoBuy", function()
+            return AutoBuyProductionPotion
+         end, function()
+            PurchaseShopPotato:FireServer("potion_production")
+            return 60
+         end, 2)
+      end
+   end,
+})
+
+local AutoBuyLuckPotion = false
+local LuckAutoBuyToggle = ShopTab:CreateToggle({
+   Name = "Luck AutoBuy",
+   CurrentValue = false,
+   Flag = "LuckAutoBuy",
+   Callback = function(LuckPotion)
+      AutoBuyLuckPotion = LuckPotion
+      if AutoBuyLuckPotion then
+         StartManagedLoop("LuckAutoBuy", function()
+            return AutoBuyLuckPotion
+         end, function()
+            PurchaseShopPotato:FireServer("potion_luck")
+            return 60
+         end, 2)
+      end
+   end,
+})
+
+local AutoBuyGoldenPotion = false
+local GoldenAutoBuyToggle = ShopTab:CreateToggle({
+   Name = "GoldenAutoBuy",
+   CurrentValue = false,
+   Flag = "GoldenAutoBuy",
+   Callback = function(GoldenPotion)
+      AutoBuyGoldenPotion = GoldenPotion
+      if AutoBuyGoldenPotion then
+         StartManagedLoop("GoldenAutoBuy", function()
+            return AutoBuyGoldenPotion
+         end, function()
+            PurchaseShopPotato:FireServer("potion_golden")
+            return 60
+         end, 2)
+      end
+   end,
+})
+local AutoBuyClickPotion = false
+local ClickAutoBuyToggle = ShopTab:CreateToggle({
+   Name = "Click AutoBuy",
+   CurrentValue = false,
+   Flag = "ClickAutoBuy",
+   Callback = function(ClickPotion)
+      AutoBuyClickPotion = ClickPotion
+      if AutoBuyClickPotion then
+         StartManagedLoop("ClickAutoBuy", function()
+            return AutoBuyClickPotion
+         end, function()
+            PurchaseShopPotato:FireServer("potion_click")
+            return 60
+         end, 2)
+      end
+   end,
+})
+
 if getconnections then
     for _, connection in pairs(getconnections(player.Idled)) do
         if connection.Disable then
@@ -429,16 +760,12 @@ if getconnections then
             connection:Disconnect()
         end
     end
-    Log("AntiAFK", "Using getconnections method – Idled event disabled")
 else
     player.Idled:Connect(function()
-        Log("AntiAFK", "Idle detected – simulating input to prevent kick")
         VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
         task.wait(1)
         VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
     end)
-    Log("AntiAFK", "Using VirtualUser method – connected to Idled event")
 end
 
 Rayfield:LoadConfiguration()
-Log("Init", "Script fully loaded! All systems ready.")
