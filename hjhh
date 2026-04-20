@@ -734,6 +734,24 @@ local ClickAutoBuyToggle = ShopTab:CreateToggle({
    end,
 })
 
+local AutoBuyEmojiPotato = false
+local EmojiPotatoAutoBuyToggle = ShopTab:CreateToggle({
+   Name = "Emoji Mystery Potato AutoBuy",
+   CurrentValue = false,
+   Flag = "EmojiBuy",
+   Callback = function(EmojiAutoBuy)
+      AutoBuyEmojiPotato = EmojiAutoBuy
+      if AutoBuyEmojiPotato then
+         StartManagedLoop("EmojiPotatoAutoBuy", function()
+            return AutoBuyEmojiPotato
+         end, function()
+            PurchaseShopPotato:FireServer("emoji_mystery_potato")
+            return 60
+         end, 2)
+      end
+   end,
+})
+
 if getconnections then
     for _, connection in pairs(getconnections(player.Idled)) do
         if connection.Disable then
