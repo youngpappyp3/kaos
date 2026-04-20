@@ -18,7 +18,7 @@ local PurchaseClickUpgrade = Remotes:WaitForChild("PurchaseClickUpgrade")
 local PurchaseGenerator = Remotes:WaitForChild("PurchaseGenerator")
 local DeleteGenerator = Remotes:WaitForChild("DeleteGenerator")
 local PurchaseShopPotato = Remotes:WaitForChild("PurchaseShopPotato")
-local DigSquare = Remotes:WaitForChild("DigSquare")
+
 
 local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
 local Window = Rayfield:CreateWindow({
@@ -40,7 +40,7 @@ local MacroTab = Window:CreateTab("Macro", 4483362458)
 local MiscTab = Window:CreateTab("Misc", 4483362458)
 local ShopTab = Window:CreateTab("Shop", 4483362458)
 local UpgradeTab = Window:CreateTab("Upgrades", 4483362458)
-local DigTab = Window:CreateTab("Dig", 4483362458)
+
 
 local PotatoGameGui = player.PlayerGui:WaitForChild("PotatoGameGUI")
 local CurrencyFrame = PotatoGameGui.Background.ClickerArea.ClickerContainer.CurrencyFrame
@@ -261,7 +261,7 @@ end, function()
    return 0.15
 end, 0.5)
 
-local PotatoDelay = 10
+local PotatoDelay = 5
 local PotatoSelling = false
 local PotatoSellLabel = SellTab:CreateLabel("Auto Sell Potatoes")
 local PotatoDelayInput = SellTab:CreateInput({
@@ -352,50 +352,7 @@ local AutoUpgradeToggle = UpgradeTab:CreateToggle({
    end,
 })
 
-local DigSection = DigTab:CreateSection("Digging")
-local DigLabel = DigTab:CreateLabel("Smart Auto Dig")
-local AutoDig = false
-local DigSquareIndex = 1
-local DigGridColumns = 6
-local DigGridRows = 3
-local DigInterval = 1.1
-local DigRegenDelay = 1.5
-local DigStaminaCost = 5
-local DigBoardSize = DigGridColumns * DigGridRows
-local AutoDigToggle = DigTab:CreateToggle({
-   Name = "Auto Dig",
-   CurrentValue = false,
-   Flag = "AutoDigToggle",
-   Callback = function(Value)
-      AutoDig = Value
-
-      if AutoDig then
-         StartManagedLoop("AutoDig", function()
-            return AutoDig
-         end, function()
-            local currentStamina, maxStamina = GetStaminaValues()
-
-            if currentStamina and maxStamina and currentStamina <= 0 then
-               return DigRegenDelay
-            elseif currentStamina and currentStamina < DigStaminaCost then
-               return DigRegenDelay
-            end
-
-            DigSquare:FireServer(DigSquareIndex)
-            DigSquareIndex = DigSquareIndex + 1
-
-            if DigSquareIndex > DigBoardSize then
-               DigSquareIndex = 1
-               return math.max(DigInterval, 1.2)
-            end
-
-            return DigInterval
-         end, 1)
-      else
-         DigSquareIndex = 1
-      end
-   end,
-})
+-- Auto Dig removed
 
 local PrestigeSection = RebirthTab:CreateSection("Ascension")
 local AscendLabel = RebirthTab:CreateLabel("Ascension Upgrades")
@@ -590,12 +547,15 @@ local ProgressionCoreUpgradeOrder = {
     "transcendent_harvest",
     "galactic_harvest"
 }
-local ProgressionSellDelay = 20
-local ProgressionAscensionDelay = 60
+local AscensionUpgradeIndex = 1
+local ProgressionSellDelay = 10
+local ProgressionPrestigeDelay = 5
+local ProgressionAscensionDelay = 30
 local ProgressionLastSellAt = 0
+local ProgressionLastPrestigeAt = 0
 local ProgressionLastAscensionAt = 0
 local ProgressionMacroToggle = MacroTab:CreateToggle({
-    Name = "Progression Macro V1",
+    Name = "Progression Macro V2",
     CurrentValue = false,
     Flag = "ProgressionMacroV1",
     Callback = function(Value)
@@ -603,10 +563,50 @@ local ProgressionMacroToggle = MacroTab:CreateToggle({
 
         if progressionmacro then
             ProgressionLastSellAt = os.clock()
+            ProgressionLastPrestigeAt = os.clock()
             ProgressionLastAscensionAt = os.clock()
             StartManagedLoop("ProgressionMacroV1", function()
                 return progressionmacro
             end, function()
+                local now = os.clock()
+
+                -- PRIORITY 1: Ascension (cycles through abundance -> prestige -> thrifty)
+                if now - ProgressionLastAscensionAt >= ProgressionAscensionDelay then
+                    local ascType = MacroAscensionOrder[MacroAscensionIndex]
+                    PerformAscension:FireServer(ascType)
+                    MacroAscensionIndex = MacroAscensionIndex + 1
+                    if MacroAscensionIndex > #MacroAscensionOrder then
+                        MacroAscensionIndex = 1
+                    end
+                    ProgressionLastAscensionAt = now
+                    task.wait(0.5)
+                end
+
+                -- PRIORITY 2: Prestige
+                if now - ProgressionLastPrestigeAt >= ProgressionPrestigeDelay then
+                    PerformPrestige:FireServer()
+                    ProgressionLastPrestigeAt = now
+                    task.wait(0.3)
+                end
+
+                -- PRIORITY 3: Sell potatoes (every 5s)
+                if now - ProgressionLastSellAt >= ProgressionSellDelay then
+                    SellCurrentPotatoes()
+                    SellCurrentGoldenPotatoes()
+                    ProgressionLastSellAt = now
+                    task.wait(0.2)
+                end
+
+                -- PRIORITY 4: Buy ascension upgrades (cycles abundance -> prestige -> thrifty)
+                local ascUpgrade = MacroAscensionOrder[AscensionUpgradeIndex]
+                PerformAscension:FireServer(ascUpgrade)
+                AscensionUpgradeIndex = AscensionUpgradeIndex + 1
+                if AscensionUpgradeIndex > #MacroAscensionOrder then
+                    AscensionUpgradeIndex = 1
+                end
+                task.wait(0.2)
+
+                -- PRIORITY 5: Buy click upgrades
                 for _, upgrade in ipairs(AutoUpgradeOrder) do
                     if not progressionmacro then
                         break
@@ -616,6 +616,7 @@ local ProgressionMacroToggle = MacroTab:CreateToggle({
                     task.wait(0.15)
                 end
 
+                -- PRIORITY 6: Buy core upgrades
                 for _, upgrade in ipairs(ProgressionCoreUpgradeOrder) do
                     if not progressionmacro then
                         break
@@ -623,25 +624,6 @@ local ProgressionMacroToggle = MacroTab:CreateToggle({
 
                     PurchaseClickUpgrade:FireServer(upgrade)
                     task.wait(0.3)
-                end
-
-                local now = os.clock()
-                if now - ProgressionLastSellAt >= ProgressionSellDelay then
-                  SellCurrentPotatoes()
-                  SellCurrentGoldenPotatoes()
-                  PerformPrestige:FireServer()
-                  ProgressionLastSellAt = now
-
-                  if now - ProgressionLastAscensionAt >= ProgressionAscensionDelay then
-                     PerformAscension:FireServer(MacroAscensionOrder[MacroAscensionIndex])
-                     MacroAscensionIndex = MacroAscensionIndex + 1
-                     if MacroAscensionIndex > #MacroAscensionOrder then
-                        MacroAscensionIndex = 1
-                     end
-                     ProgressionLastAscensionAt = now
-                  end
-
-                  return 1
                 end
 
                 return 0.5
