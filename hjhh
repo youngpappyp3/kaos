@@ -439,6 +439,10 @@ local AutoPrestigeToggle = RebirthTab:CreateToggle({
 local MacroSection = MacroTab:CreateSection("Core Macros")
 local MacroLabel = MacroTab:CreateLabel("Progression / SuperHuman")
 
+-- Feature gates: leave the logic in place, but disable these actions by default.
+local ClickerUpgradesEnabled = false
+local ConversionEnabled = false
+
 local MPrestige = PerformPrestige
 local MGoldenSell = SellGoldenPotatoes
 local MWisdom = PurchaseClickUpgrade
@@ -512,22 +516,34 @@ local MacroV1Toggle = MacroTab:CreateToggle({
                         MPrestige:FireServer()
 
                     elseif action == "sell" then
-                        MGoldenSell:FireServer(value)
+                        if ConversionEnabled then
+                            MGoldenSell:FireServer(value)
+                        end
 
                     elseif action == "wisdom" then
-                        MWisdom:FireServer("grandfathers_wisdom")
+                        if ClickerUpgradesEnabled then
+                            MWisdom:FireServer("grandfathers_wisdom")
+                        end
 
                     elseif action == "energy" then
-                        MEnergy:FireServer("infinite_energy")
+                        if ClickerUpgradesEnabled then
+                            MEnergy:FireServer("infinite_energy")
+                        end
 
                     elseif action == "omni" then
-                        MOmni:FireServer("omnipotato_blessing")
+                        if ClickerUpgradesEnabled then
+                            MOmni:FireServer("omnipotato_blessing")
+                        end
 
                     elseif action == "harvest" then
-                        MHarvest:FireServer("transcendent_harvest")
+                        if ClickerUpgradesEnabled then
+                            MHarvest:FireServer("transcendent_harvest")
+                        end
 
                     elseif action == "galactic" then
-                        MGalactic:FireServer("galactic_harvest")
+                        if ClickerUpgradesEnabled then
+                            MGalactic:FireServer("galactic_harvest")
+                        end
                     end
 
                     task.wait(delay)
@@ -591,8 +607,10 @@ local ProgressionMacroToggle = MacroTab:CreateToggle({
 
                 -- PRIORITY 3: Sell potatoes (every 5s)
                 if now - ProgressionLastSellAt >= ProgressionSellDelay then
-                    SellCurrentPotatoes()
-                    SellCurrentGoldenPotatoes()
+                    if ConversionEnabled then
+                        SellCurrentPotatoes()
+                        SellCurrentGoldenPotatoes()
+                    end
                     ProgressionLastSellAt = now
                     task.wait(0.2)
                 end
@@ -606,24 +624,26 @@ local ProgressionMacroToggle = MacroTab:CreateToggle({
                 end
                 task.wait(0.2)
 
-                -- PRIORITY 5: Buy click upgrades
-                for _, upgrade in ipairs(AutoUpgradeOrder) do
-                    if not progressionmacro then
-                        break
+                if ClickerUpgradesEnabled then
+                    -- PRIORITY 5: Buy click upgrades
+                    for _, upgrade in ipairs(AutoUpgradeOrder) do
+                        if not progressionmacro then
+                            break
+                        end
+
+                        PurchaseClickUpgrade:FireServer(upgrade)
+                        task.wait(0.15)
                     end
 
-                    PurchaseClickUpgrade:FireServer(upgrade)
-                    task.wait(0.15)
-                end
+                    -- PRIORITY 6: Buy core upgrades
+                    for _, upgrade in ipairs(ProgressionCoreUpgradeOrder) do
+                        if not progressionmacro then
+                            break
+                        end
 
-                -- PRIORITY 6: Buy core upgrades
-                for _, upgrade in ipairs(ProgressionCoreUpgradeOrder) do
-                    if not progressionmacro then
-                        break
+                        PurchaseClickUpgrade:FireServer(upgrade)
+                        task.wait(0.3)
                     end
-
-                    PurchaseClickUpgrade:FireServer(upgrade)
-                    task.wait(0.3)
                 end
 
                 return 0.5
