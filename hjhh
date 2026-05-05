@@ -394,24 +394,14 @@ RebirthTab:CreateToggle({
 --    1. ClickPower upgrade  — boost each tap first
 --    2. CoinGenerator upgrade — passive income
 --    3. Auto tap            — earn with boosted value
---    4. Battle              — every 26s for battle rewards
---    5. Rebirth             — configurable timer for multipliers
+--    4. Rebirth             — configurable timer for multipliers
 -- ============================================================
 MacroTab:CreateSection("ClickerMax Macro")
-MacroTab:CreateLabel("Click → Upgrades → Battle → Rebirth")
+MacroTab:CreateLabel("Click → Upgrades → Rebirth")
 
 local MacroRunning      = false
-local MacroBattleDelay  = 26
 local MacroRebirthDelay = 60
-local MacroLastBattle   = 0
 local MacroLastRebirth  = 0
-
-MacroTab:CreateInput({
-    Name                = "Macro Battle Delay (s)",
-    PlaceholderText     = "Default: 26",
-    RemoveTextAfterFocusLost = false,
-    Callback            = function(v) MacroBattleDelay = tonumber(v) or 26 end,
-})
 
 MacroTab:CreateInput({
     Name                = "Macro Rebirth Delay (s)",
@@ -426,12 +416,9 @@ MacroTab:CreateToggle({
     Flag         = "ClickerMaxMacro",
     Callback     = function(v)
         MacroRunning     = v
-        MacroLastBattle  = os.clock() - MacroBattleDelay   -- fire battle immediately
         MacroLastRebirth = os.clock()
 
         if MacroRunning then
-            RefreshLoadout()   -- snapshot loadout at macro start
-
             StartManagedLoop("ClickerMaxMacro", function() return MacroRunning end, function()
                 local now = os.clock()
 
@@ -447,19 +434,7 @@ MacroTab:CreateToggle({
                 ClickerTap:FireServer()
                 task.wait(0.05)
 
-                -- 4. Battle (every MacroBattleDelay seconds)
-                if now - MacroLastBattle >= MacroBattleDelay then
-                    RefreshLoadout()   -- pick up any equip changes
-                    StartBattle:InvokeServer("TrainingYard", {
-                        [1] = BrawlerSlots[1],
-                        [2] = BrawlerSlots[2],
-                        [3] = BrawlerSlots[3],
-                    })
-                    MacroLastBattle = now
-                    task.wait(0.5)
-                end
-
-                -- 5. Rebirth (every MacroRebirthDelay seconds)
+                -- 4. Rebirth (every MacroRebirthDelay seconds)
                 if now - MacroLastRebirth >= MacroRebirthDelay then
                     PurchaseRebirth:InvokeServer()
                     MacroLastRebirth = now
