@@ -1,6 +1,6 @@
 -- ============================================================
 --  Clicker Hub  |  Rayfield UI
---  Tabs: Auto · Upgrades · Battle · Rebirth · Macro · Misc
+--  Tabs: Auto · Upgrades · Roll · Rebirth · Macro · Misc
 -- ============================================================
 
 local CoreGui = game:GetService("CoreGui")
@@ -17,7 +17,7 @@ local Remotes         = ReplicatedStorage:WaitForChild("Remotes", 9e9)
 local ClickerTap      = Remotes:WaitForChild("ClickerTap",       9e9)
 local PurchaseUpgrade = Remotes:WaitForChild("PurchaseUpgrade",  9e9)
 local PurchaseRebirth = Remotes:WaitForChild("PurchaseRebirth",  9e9)
-local StartBattle     = Remotes:WaitForChild("StartBattle",      9e9)
+local RollDice        = Remotes:WaitForChild("RollDice",         9e9)
 
 -- ── Rayfield ─────────────────────────────────────────────────
 local Rayfield = loadstring(game:HttpGet(
@@ -39,7 +39,7 @@ local Window = Rayfield:CreateWindow({
 -- ── Tabs ─────────────────────────────────────────────────────
 local AutoTab    = Window:CreateTab("Auto",     4483362458)
 local UpgradeTab = Window:CreateTab("Upgrades", 4483362458)
-local BattleTab  = Window:CreateTab("Battle",   4483362458)
+local RollTab    = Window:CreateTab("Roll",     4483362458)
 local RebirthTab = Window:CreateTab("Rebirth",  4483362458)
 local MacroTab   = Window:CreateTab("Macro",    4483362458)
 local MiscTab    = Window:CreateTab("Misc",     4483362458)
@@ -64,89 +64,6 @@ local function StartManagedLoop(name, isRunning, tickFn, errDelay)
         ActiveLoops[name] = nil
     end)
 end
-
--- ============================================================
---  BRAWLER AUTO-DETECT
---  Tries common paths where games store equipped brawlers.
---  Falls back to manual slot inputs if nothing is found.
--- ============================================================
-
---[[
-    Common storage paths tried (in order):
-      player.Data.EquippedBrawlers
-      player.Data.Equipped
-      player.Data.Loadout
-      player.PlayerData.EquippedBrawlers
-      player.leaderstats  (less likely but checked)
-    Each is expected to be a table / folder with children whose
-    Name or Value is the brawler string.
-]]
-
-local function TryGetEquippedBrawlers()
-    -- Helper: read up to 3 string values from a folder/table
-    local function ReadSlots(folder)
-        local slots = {}
-        if typeof(folder) == "Instance" then
-            for _, child in ipairs(folder:GetChildren()) do
-                local v = child:IsA("StringValue") and child.Value
-                       or child:IsA("ValueBase")   and tostring(child.Value)
-                       or child.Name
-                if v and v ~= "" then
-                    slots[#slots + 1] = v
-                end
-                if #slots >= 3 then break end
-            end
-        elseif type(folder) == "table" then
-            for i = 1, math.min(3, #folder) do
-                slots[#slots + 1] = tostring(folder[i])
-            end
-        end
-        return slots
-    end
-
-    -- Paths to probe
-    local probes = {
-        function() return player:FindFirstChild("Data")
-                        and player.Data:FindFirstChild("EquippedBrawlers") end,
-        function() return player:FindFirstChild("Data")
-                        and player.Data:FindFirstChild("Equipped") end,
-        function() return player:FindFirstChild("Data")
-                        and player.Data:FindFirstChild("Loadout") end,
-        function() return player:FindFirstChild("PlayerData")
-                        and player.PlayerData:FindFirstChild("EquippedBrawlers") end,
-        function() return player:FindFirstChild("PlayerData")
-                        and player.PlayerData:FindFirstChild("Loadout") end,
-    }
-
-    for _, probe in ipairs(probes) do
-        local ok, result = pcall(probe)
-        if ok and result then
-            local slots = ReadSlots(result)
-            if #slots > 0 then
-                return slots
-            end
-        end
-    end
-
-    return nil   -- couldn't auto-detect
-end
-
--- Current loadout (starts from auto-detect, updated by Refresh or manual input)
-local BrawlerSlots = {"shelly", false, false}   -- default from your example
-
-local function RefreshLoadout()
-    local detected = TryGetEquippedBrawlers()
-    if detected then
-        BrawlerSlots[1] = detected[1] or false
-        BrawlerSlots[2] = detected[2] or false
-        BrawlerSlots[3] = detected[3] or false
-        return true, detected
-    end
-    return false, nil
-end
-
--- Try auto-detect on startup
-RefreshLoadout()
 
 -- ============================================================
 --  AUTO TAB  –  Auto Clicker
@@ -236,121 +153,37 @@ UpgradeTab:CreateToggle({
 })
 
 -- ============================================================
---  BATTLE TAB  –  Auto Battle (StartBattle every 26s)
---  Brawler slots auto-read from player data, with manual override
+--  ROLL TAB  –  Auto Roll (RollDice "golden")
 -- ============================================================
-BattleTab:CreateSection("Equipped Brawlers")
-BattleTab:CreateLabel("Auto-reads your loadout. Use Refresh or set manually.")
+RollTab:CreateSection("Auto Roll")
+RollTab:CreateLabel("Invokes RollDice:InvokeServer(\"golden\") on a loop")
 
--- Show current detected slots
-local function SlotDisplay()
-    local function fmt(v) return (v and tostring(v) ~= "false") and tostring(v) or "(empty)" end
-    return string.format("Slot 1: %s  |  Slot 2: %s  |  Slot 3: %s",
-        fmt(BrawlerSlots[1]), fmt(BrawlerSlots[2]), fmt(BrawlerSlots[3]))
-end
+local RollDelay = 5   -- default delay in seconds
 
-local LoadoutLabel = BattleTab:CreateLabel(SlotDisplay())
-
--- Refresh button — re-reads equipped brawlers from game data
-BattleTab:CreateButton({
-    Name     = "🔄 Refresh Loadout (auto-detect)",
-    Callback = function()
-        local ok, found = RefreshLoadout()
-        if ok then
-            LoadoutLabel:Set(SlotDisplay())
-            Rayfield:Notify({
-                Title    = "Loadout Refreshed",
-                Content  = SlotDisplay(),
-                Duration = 4,
-            })
-        else
-            Rayfield:Notify({
-                Title    = "Auto-Detect Failed",
-                Content  = "Set slots manually below.",
-                Duration = 4,
-            })
+RollTab:CreateInput({
+    Name                = "Roll Delay (seconds)",
+    PlaceholderText     = "Default: 5  (e.g. 0.5 or 10)",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        local n = tonumber(v)
+        if n and n > 0 then
+            RollDelay = n
         end
     end,
 })
 
-BattleTab:CreateSection("Manual Slot Override")
-BattleTab:CreateLabel("Leave blank to keep auto-detected value or 'false' for empty slot")
-
-BattleTab:CreateInput({
-    Name                = "Slot 1 Brawler Name",
-    PlaceholderText     = "e.g. shelly",
-    RemoveTextAfterFocusLost = false,
-    Callback            = function(v)
-        if v == "" then return end
-        local lower = v:lower()
-        BrawlerSlots[1] = (lower == "false" or lower == "nil" or lower == "none") and false or v
-        LoadoutLabel:Set(SlotDisplay())
-    end,
-})
-
-BattleTab:CreateInput({
-    Name                = "Slot 2 Brawler Name",
-    PlaceholderText     = "e.g. colt  (or 'false' for empty)",
-    RemoveTextAfterFocusLost = false,
-    Callback            = function(v)
-        if v == "" then return end
-        local lower = v:lower()
-        BrawlerSlots[2] = (lower == "false" or lower == "nil" or lower == "none") and false or v
-        LoadoutLabel:Set(SlotDisplay())
-    end,
-})
-
-BattleTab:CreateInput({
-    Name                = "Slot 3 Brawler Name",
-    PlaceholderText     = "e.g. bull  (or 'false' for empty)",
-    RemoveTextAfterFocusLost = false,
-    Callback            = function(v)
-        if v == "" then return end
-        local lower = v:lower()
-        BrawlerSlots[3] = (lower == "false" or lower == "nil" or lower == "none") and false or v
-        LoadoutLabel:Set(SlotDisplay())
-    end,
-})
-
-BattleTab:CreateSection("Auto Battle")
-
-local BattleDelay = 26
-BattleTab:CreateInput({
-    Name                = "Battle Delay (seconds)",
-    PlaceholderText     = "Default: 26",
-    RemoveTextAfterFocusLost = false,
-    Callback            = function(v)
-        BattleDelay = tonumber(v) or 26
-    end,
-})
-
-local AutoBattle = false
-BattleTab:CreateToggle({
-    Name         = "Auto Battle (TrainingYard)",
+local AutoRoll = false
+RollTab:CreateToggle({
+    Name         = "Auto Roll (golden)",
     CurrentValue = false,
-    Flag         = "AutoBattle",
+    Flag         = "AutoRoll",
     Callback     = function(v)
-        AutoBattle = v
-        if AutoBattle then
-            -- Try one more auto-detect before starting
-            RefreshLoadout()
-            LoadoutLabel:Set(SlotDisplay())
-
-            StartManagedLoop("AutoBattle", function() return AutoBattle end, function()
-                -- Re-read loadout every iteration so equip changes are picked up
-                RefreshLoadout()
-
-                local args = {
-                    [1] = "TrainingYard",
-                    [2] = {
-                        [1] = BrawlerSlots[1],
-                        [2] = BrawlerSlots[2],
-                        [3] = BrawlerSlots[3],
-                    },
-                }
-                StartBattle:InvokeServer(unpack(args))
-                return BattleDelay
-            end, 2)
+        AutoRoll = v
+        if AutoRoll then
+            StartManagedLoop("AutoRoll", function() return AutoRoll end, function()
+                RollDice:InvokeServer("golden")
+                return RollDelay
+            end, 1)
         end
     end,
 })
