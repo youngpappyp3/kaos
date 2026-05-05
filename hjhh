@@ -1,791 +1,495 @@
+-- ============================================================
+--  Clicker Hub  |  Rayfield UI
+--  Tabs: Auto · Upgrades · Battle · Rebirth · Macro · Misc
+-- ============================================================
+
 local CoreGui = game:GetService("CoreGui")
 local old = CoreGui:FindFirstChild("Rayfield")
-if old then
-    old:Destroy()
-end
+if old then old:Destroy() end
 
-local Players = game:GetService("Players")
+local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local VirtualUser = game:GetService("VirtualUser")
-local player = Players.LocalPlayer
-local Remotes = ReplicatedStorage:WaitForChild("Remotes")
-local SellPotatoes = Remotes:WaitForChild("SellPotatoes")
-local SellGoldenPotatoes = Remotes:WaitForChild("SellGoldenPotatoes")
-local PerformClick = Remotes:WaitForChild("PerformClick")
-local PerformAscension = Remotes:WaitForChild("PerformAscension")
-local PerformPrestige = Remotes:WaitForChild("PerformPrestige")
-local PurchaseClickUpgrade = Remotes:WaitForChild("PurchaseClickUpgrade")
-local PurchaseGenerator = Remotes:WaitForChild("PurchaseGenerator")
-local DeleteGenerator = Remotes:WaitForChild("DeleteGenerator")
-local PurchaseShopPotato = Remotes:WaitForChild("PurchaseShopPotato")
+local VirtualUser       = game:GetService("VirtualUser")
+local player            = Players.LocalPlayer
 
+-- ── Remotes ──────────────────────────────────────────────────
+local Remotes         = ReplicatedStorage:WaitForChild("Remotes", 9e9)
+local ClickerTap      = Remotes:WaitForChild("ClickerTap",       9e9)
+local PurchaseUpgrade = Remotes:WaitForChild("PurchaseUpgrade",  9e9)
+local PurchaseRebirth = Remotes:WaitForChild("PurchaseRebirth",  9e9)
+local StartBattle     = Remotes:WaitForChild("StartBattle",      9e9)
 
-local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua'))()
+-- ── Rayfield ─────────────────────────────────────────────────
+local Rayfield = loadstring(game:HttpGet(
+    "https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua"
+))()
+
 local Window = Rayfield:CreateWindow({
-   Name = "Potato Script V3",
-   LoadingTitle = "Idle Potato Game",
-   LoadingSubtitle = "by Totemoflol",
-   ConfigurationSaving = {
-      Enabled = true,
-      FolderName = nil,
-      FileName = "TatoHubConfig"
-   },
-   KeySystem = false
+    Name            = "Clicker Hub",
+    LoadingTitle    = "Clicker Game",
+    LoadingSubtitle = "by Script",
+    ConfigurationSaving = {
+        Enabled    = true,
+        FolderName = nil,
+        FileName   = "ClickerHubConfig",
+    },
+    KeySystem = false,
 })
 
-local SellTab = Window:CreateTab("Sell", 4483362458)
-local AutoTab = Window:CreateTab("Auto", 4483362458)
-local RebirthTab = Window:CreateTab("Rebirths", 4483362458)
-local MacroTab = Window:CreateTab("Macro", 4483362458)
-local MiscTab = Window:CreateTab("Misc", 4483362458)
-local ShopTab = Window:CreateTab("Shop", 4483362458)
+-- ── Tabs ─────────────────────────────────────────────────────
+local AutoTab    = Window:CreateTab("Auto",     4483362458)
 local UpgradeTab = Window:CreateTab("Upgrades", 4483362458)
+local BattleTab  = Window:CreateTab("Battle",   4483362458)
+local RebirthTab = Window:CreateTab("Rebirth",  4483362458)
+local MacroTab   = Window:CreateTab("Macro",    4483362458)
+local MiscTab    = Window:CreateTab("Misc",     4483362458)
 
-
-local PotatoGameGui = player.PlayerGui:WaitForChild("PotatoGameGUI")
-local CurrencyFrame = PotatoGameGui.Background.ClickerArea.ClickerContainer.CurrencyFrame
-
-local function ParseCurrencyAmount(text)
-   local sanitized = tostring(text or ""):gsub(",", ""):gsub("%s+", "")
-   local numericText, suffix = sanitized:match("([%-]?[%d%.]+)([A-Za-z]+)")
-   local amount = tonumber(numericText or sanitized:match("%-?[%d%.]+"))
-   if not amount then
-      return 0
-   end
-
-   if not suffix then
-      return amount
-   end
-
-   local multipliers = {
-      K = 1e3,
-      M = 1e6,
-      B = 1e9,
-      T = 1e12,
-      Qa = 1e15,
-      Qi = 1e18,
-      Sx = 1e21,
-      Sp = 1e24,
-      Oc = 1e27,
-      No = 1e30,
-      Dc = 1e33,
-   }
-
-   return amount * (multipliers[suffix] or 1)
-end
-
-local function FindCurrencyLabel(rowNames, countNames)
-   for _, rowName in ipairs(rowNames) do
-      local row = CurrencyFrame:FindFirstChild(rowName, true)
-      if row then
-         for _, countName in ipairs(countNames) do
-            local countLabel = row:FindFirstChild(countName, true)
-            if countLabel then
-               return countLabel
-            end
-         end
-
-         local fallbackLabel = row:FindFirstChildWhichIsA("TextLabel", true)
-         if fallbackLabel then
-            return fallbackLabel
-         end
-      end
-   end
-end
-
-local GoldenCountLabel = FindCurrencyLabel({"GoldenRow"}, {"GoldenCount"})
-local PotatoCountLabel = FindCurrencyLabel({"PotatoRow", "PotatoesRow", "NormalRow"}, {"PotatoCount", "Count"})
-
-local function FindStaminaLabel()
-   local preferredNames = {
-      "StaminaValue",
-      "StaminaLabel",
-      "StaminaText",
-      "CurrentStamina"
-   }
-
-   for _, name in ipairs(preferredNames) do
-      local label = PotatoGameGui:FindFirstChild(name, true)
-      if label and label:IsA("TextLabel") then
-         return label
-      end
-   end
-
-   for _, descendant in ipairs(PotatoGameGui:GetDescendants()) do
-      if descendant:IsA("TextLabel") then
-         local text = tostring(descendant.Text or "")
-         if text:match("^%s*[%d,%.]+%s*/%s*[%d,%.]+%s*$") then
-            return descendant
-         end
-      end
-   end
-end
-
-local StaminaLabel = FindStaminaLabel()
-
-local function GetStaminaValues()
-   if not StaminaLabel or not StaminaLabel.Parent then
-      StaminaLabel = FindStaminaLabel()
-   end
-
-   if not StaminaLabel then
-      return nil, nil
-   end
-
-   local currentText, maxText = tostring(StaminaLabel.Text or ""):match("([%d,%.]+)%s*/%s*([%d,%.]+)")
-   if not currentText or not maxText then
-      return nil, nil
-   end
-
-   return ParseCurrencyAmount(currentText), ParseCurrencyAmount(maxText)
-end
-
-local function GetGoldenCountLabel()
-   if not GoldenCountLabel or not GoldenCountLabel.Parent then
-      GoldenCountLabel = FindCurrencyLabel({"GoldenRow"}, {"GoldenCount"})
-   end
-
-   return GoldenCountLabel
-end
-
-local function GetPotatoCountLabel()
-   if not PotatoCountLabel or not PotatoCountLabel.Parent then
-      PotatoCountLabel = FindCurrencyLabel({"PotatoRow", "PotatoesRow", "NormalRow"}, {"PotatoCount", "Count"})
-   end
-
-   return PotatoCountLabel
-end
-
+-- ── Managed loop helper ───────────────────────────────────────
 local ActiveLoops = {}
 
-local function StartManagedLoop(loopName, isRunning, tickFn, errorDelay)
-   if ActiveLoops[loopName] then
-      return
-   end
-
-   ActiveLoops[loopName] = true
-   task.spawn(function()
-      while isRunning() do
-         local ok, waitTime = pcall(tickFn)
-         if ok then
-            if type(waitTime) == "number" and waitTime > 0 then
-               task.wait(waitTime)
-            end
-         else
-            task.wait(errorDelay or 1)
-         end
-      end
-
-      ActiveLoops[loopName] = nil
-   end)
-end
-
-local function SellCurrentGoldenPotatoes()
-   local goldenLabel = GetGoldenCountLabel()
-   if goldenLabel then
-      local gold = ParseCurrencyAmount(goldenLabel.Text)
-      if gold > 0 then
-         SellGoldenPotatoes:FireServer(gold)
-      end
-   end
-end
-
-local function SellCurrentPotatoes()
-   local potatoLabel = GetPotatoCountLabel()
-   if potatoLabel then
-      local potatoes = ParseCurrencyAmount(potatoLabel.Text)
-      if potatoes > 0 then
-         SellPotatoes:FireServer(potatoes)
-      end
-   end
-end
-
-local Amount = 1
-local Delay = 1
-local Running = false
-local Label = SellTab:CreateLabel("Auto Sell")
-local AmountInput = SellTab:CreateInput({
-   Name = "Amount Of Gold Potatoes",
-   PlaceholderText = "Enter Amount",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Value)
-      Amount = tonumber(Value) or 0
-   end,
-})
-local DelayInput = SellTab:CreateInput({
-   Name = "Delay (seconds)",
-   PlaceholderText = "Enter Delay",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Value)
-      Delay = tonumber(Value) or 0
-   end,
-})
-local AutoSellToggle = SellTab:CreateToggle({
-   Name = "Auto Sell",
-   CurrentValue = false,
-   Flag = "AutoSellToggle",
-   Callback = function(Value)
-      Running = Value
-
-      if Running then
-         StartManagedLoop("AutoSellGoldAmount", function()
-            return Running
-         end, function()
-            SellGoldenPotatoes:FireServer(Amount)
-            return Delay
-         end, 1)
-      end
-   end,
-})
-
-local Section = SellTab:CreateSection("Auto Sell Golden Potatoes")
-
-local selling = false
-
-local SellAllToggle = SellTab:CreateToggle({
-   Name = "Auto Sell Golden Potatoes",
-   CurrentValue = false,
-   Flag = "AutoSellGolden",
-   Callback = function(state)
-      selling = state
-   end,
-})
-
-StartManagedLoop("AutoSellGoldenAll", function()
-   return true
-end, function()
-   if selling then
-      SellCurrentGoldenPotatoes()
-   end
-
-   return 0.15
-end, 0.5)
-
-local PotatoDelay = 5
-local PotatoSelling = false
-local PotatoSellLabel = SellTab:CreateLabel("Auto Sell Potatoes")
-local PotatoDelayInput = SellTab:CreateInput({
-   Name = "Potato Delay (seconds)",
-   PlaceholderText = "Enter Delay",
-   RemoveTextAfterFocusLost = false,
-   Callback = function(Value)
-      PotatoDelay = tonumber(Value) or 0
-   end,
-})
-local AutoSellPotatoesToggle = SellTab:CreateToggle({
-   Name = "Auto Sell Potatoes",
-   CurrentValue = false,
-   Flag = "AutoSellPotatoesToggle",
-   Callback = function(Value)
-      PotatoSelling = Value
-
-      if PotatoSelling then
-         StartManagedLoop("AutoSellPotatoes", function()
-            return PotatoSelling
-         end, function()
-            SellCurrentPotatoes()
-            return PotatoDelay
-         end, 1)
-      end
-   end,
-})
-
-local AutoClickLabel = AutoTab:CreateLabel("Auto Clicker")
-local Clicking = false
-local AutoClickToggle = AutoTab:CreateToggle({
-   Name = "Auto Click (0.005s)",
-   CurrentValue = false,
-   Flag = "AutoClickToggle",
-   Callback = function(Clicks)
-      Clicking = Clicks
-
-      if Clicking then
-         StartManagedLoop("AutoClick", function()
-            return Clicking
-         end, function()
-            PerformClick:FireServer()
-            return 0.005
-         end, 0.25)
-      end
-   end,
-})
-
-local UpgradeSection = UpgradeTab:CreateSection("Auto Upgrade")
-local UpgradeLabel = UpgradeTab:CreateLabel("Auto Upgrade Loop")
-local AutoUpgradeOrder = {
-   "stronger_hands",
-   "padded_gloves",
-   "steel_trowel",
-   "golden_trowel",
-   "farmers_instinct",
-   "golden_touch",
-   "collectors_guidebook",
-   "premium_fertilizer",
-   "lucky_fertilizer",
-   "prize_winning_seeds",
-   "midas_touch"
-}
-local AutoUpgradeLoop = false
-local AutoUpgradeToggle = UpgradeTab:CreateToggle({
-   Name = "Auto Upgrade Loop",
-   CurrentValue = false,
-   Flag = "AutoUpgradeLoop",
-   Callback = function(Value)
-      AutoUpgradeLoop = Value
-
-      if AutoUpgradeLoop then
-         StartManagedLoop("AutoUpgradeLoop", function()
-            return AutoUpgradeLoop
-         end, function()
-            for _, upgrade in ipairs(AutoUpgradeOrder) do
-               if not AutoUpgradeLoop then
-                  break
-               end
-
-               PurchaseClickUpgrade:FireServer(upgrade)
-               task.wait(0.2)
-            end
-
-            return 1
-         end, 1)
-      end
-   end,
-})
-
--- Auto Dig removed
-
-local PrestigeSection = RebirthTab:CreateSection("Ascension")
-local AscendLabel = RebirthTab:CreateLabel("Ascension Upgrades")
-local MacroAscensionOrder = {"abundance", "prestige", "thrifty"}
-local MacroAscensionIndex = 1
-local AbundanceAscend = false
-local AscendToggle = RebirthTab:CreateToggle({
-   Name = "Abundance Ascension",
-   CurrentValue = false,
-   Flag = "AutoAscend",
-   Callback = function(abundance)
-      AbundanceAscend = abundance
-
-      if AbundanceAscend then
-         StartManagedLoop("AbundanceAscension", function()
-            return AbundanceAscend
-         end, function()
-            PerformAscension:FireServer("abundance")
-            return 60
-         end, 2)
-      end
-   end,
-})
-
-local PrestigeAscend = false
-
-local PrestigeAscendToggle = RebirthTab:CreateToggle({
-   Name = "Prestige Ascension",
-   CurrentValue = false,
-   Flag = "PrestigeAscension",
-   Callback = function(PrestigeA)
-      PrestigeAscend = PrestigeA
-
-      if PrestigeAscend then
-         StartManagedLoop("PrestigeAscension", function()
-            return PrestigeAscend
-         end, function()
-            PerformAscension:FireServer("prestige")
-            return 60
-         end, 2)
-      end
-   end,
-})
-
-local ThriftAscend = false
-local ThriftyAscendToggle = RebirthTab:CreateToggle({
-   Name = "Thrifty Ascension",
-   CurrentValue = false,
-   Flag = "ThriftyAscension",
-   Callback = function(ThriftyAscend)
-      ThriftAscend = ThriftyAscend
-
-      if ThriftAscend then
-         StartManagedLoop("ThriftyAscension", function()
-            return ThriftAscend
-         end, function()
-            PerformAscension:FireServer("thrifty")
-            return 60
-         end, 2)
-      end
-   end,
-})
-
-local Divider = RebirthTab:CreateSection("Prestige")
-local PrestigeLabel = RebirthTab:CreateLabel("Auto Prestige")
-local Prestiging = false
-local AutoPrestigeToggle = RebirthTab:CreateToggle({
-   Name = "Auto Prestige (32s)",
-   CurrentValue = false,
-   Flag = "AutoPrestigeToggle",
-   Callback = function(APrestige)
-      Prestiging = APrestige
-      if Prestiging then
-         StartManagedLoop("AutoPrestige", function()
-            return Prestiging
-         end, function()
-            PerformPrestige:FireServer()
-            return 32
-         end, 2)
-      end
-   end,
-})
-
-local MacroSection = MacroTab:CreateSection("Core Macros")
-local MacroLabel = MacroTab:CreateLabel("Progression / SuperHuman")
-
--- Feature gates: leave the logic in place, but disable these actions by default.
-local ClickerUpgradesEnabled = false
-local ConversionEnabled = false
-
-local MPrestige = PerformPrestige
-local MGoldenSell = SellGoldenPotatoes
-local MWisdom = PurchaseClickUpgrade
-local MEnergy = PurchaseClickUpgrade
-local MOmni = PurchaseClickUpgrade
-local MHarvest = PurchaseClickUpgrade
-local MGalactic = PurchaseClickUpgrade
-
-local SuperHumanMacroDivider = MacroTab:CreateSection("SuperHuman Macro")
-local SuperHumanMacroLabel = MacroTab:CreateLabel("SuperHuman Macro")
-
-local superhumanmacro = false
-
-local SuperMacroV1 = {
-    {"prestige", nil, 2.6},
-
-    {"sell", 1_000_000, 0.05},
-    {"wisdom", nil, 0.8},
-
-    {"sell", 428_700, 0.05},
-    {"wisdom", nil, 1.9},
-
-    {"sell", 140_000_000, 0.05},
-    {"energy", nil, 0.3},
-
-    {"sell", 150_000_000, 0},
-    {"energy", nil, 0.6},
-
-    {"sell", 300_000_000, 0},
-    {"energy", nil, 1},
-
-    {"sell", 2_870_000_000, 0},
-    {"omni", nil, 1},
-
-    {"sell", 4_000_000_000, 0},
-    {"omni", nil, 1},
-
-    {"sell", 8_000_000_000, 0},
-    {"harvest", nil, 0.6},
-
-    {"sell", 27_830_000_000, 0},
-    {"harvest", nil, 0.05},
-
-    {"galactic", nil, 0.5},
-
-    {"sell", 40_670_000_000, 0},
-    {"galactic", nil, 20.5},
-
-    {"sell", 3_000_000_000_000, 0.5}
-}
-
-local MacroV1Toggle = MacroTab:CreateToggle({
-    Name = "SuperHumanMacro V1",
-    CurrentValue = false,
-    Flag = "SuperHumanMacroV1",
-
-    Callback = function(superhumanmacrov1)
-        superhumanmacro = superhumanmacrov1
-        if superhumanmacro then
-            StartManagedLoop("SuperHumanMacro", function()
-                return superhumanmacro
-            end, function()
-                for _, step in ipairs(SuperMacroV1) do
-                    if not superhumanmacro then
-                        break
-                    end
-
-                    local action, value, delay = unpack(step)
-
-                    if action == "prestige" then
-                        MPrestige:FireServer()
-
-                    elseif action == "sell" then
-                        if ConversionEnabled then
-                            MGoldenSell:FireServer(value)
-                        end
-
-                    elseif action == "wisdom" then
-                        if ClickerUpgradesEnabled then
-                            MWisdom:FireServer("grandfathers_wisdom")
-                        end
-
-                    elseif action == "energy" then
-                        if ClickerUpgradesEnabled then
-                            MEnergy:FireServer("infinite_energy")
-                        end
-
-                    elseif action == "omni" then
-                        if ClickerUpgradesEnabled then
-                            MOmni:FireServer("omnipotato_blessing")
-                        end
-
-                    elseif action == "harvest" then
-                        if ClickerUpgradesEnabled then
-                            MHarvest:FireServer("transcendent_harvest")
-                        end
-
-                    elseif action == "galactic" then
-                        if ClickerUpgradesEnabled then
-                            MGalactic:FireServer("galactic_harvest")
-                        end
-                    end
-
-                    task.wait(delay)
+local function StartManagedLoop(name, isRunning, tickFn, errDelay)
+    if ActiveLoops[name] then return end
+    ActiveLoops[name] = true
+    task.spawn(function()
+        while isRunning() do
+            local ok, wait = pcall(tickFn)
+            if ok then
+                if type(wait) == "number" and wait > 0 then
+                    task.wait(wait)
                 end
-            end, 1)
+            else
+                task.wait(errDelay or 1)
+            end
+        end
+        ActiveLoops[name] = nil
+    end)
+end
+
+-- ============================================================
+--  BRAWLER AUTO-DETECT
+--  Tries common paths where games store equipped brawlers.
+--  Falls back to manual slot inputs if nothing is found.
+-- ============================================================
+
+--[[
+    Common storage paths tried (in order):
+      player.Data.EquippedBrawlers
+      player.Data.Equipped
+      player.Data.Loadout
+      player.PlayerData.EquippedBrawlers
+      player.leaderstats  (less likely but checked)
+    Each is expected to be a table / folder with children whose
+    Name or Value is the brawler string.
+]]
+
+local function TryGetEquippedBrawlers()
+    -- Helper: read up to 3 string values from a folder/table
+    local function ReadSlots(folder)
+        local slots = {}
+        if typeof(folder) == "Instance" then
+            for _, child in ipairs(folder:GetChildren()) do
+                local v = child:IsA("StringValue") and child.Value
+                       or child:IsA("ValueBase")   and tostring(child.Value)
+                       or child.Name
+                if v and v ~= "" then
+                    slots[#slots + 1] = v
+                end
+                if #slots >= 3 then break end
+            end
+        elseif type(folder) == "table" then
+            for i = 1, math.min(3, #folder) do
+                slots[#slots + 1] = tostring(folder[i])
+            end
+        end
+        return slots
+    end
+
+    -- Paths to probe
+    local probes = {
+        function() return player:FindFirstChild("Data")
+                        and player.Data:FindFirstChild("EquippedBrawlers") end,
+        function() return player:FindFirstChild("Data")
+                        and player.Data:FindFirstChild("Equipped") end,
+        function() return player:FindFirstChild("Data")
+                        and player.Data:FindFirstChild("Loadout") end,
+        function() return player:FindFirstChild("PlayerData")
+                        and player.PlayerData:FindFirstChild("EquippedBrawlers") end,
+        function() return player:FindFirstChild("PlayerData")
+                        and player.PlayerData:FindFirstChild("Loadout") end,
+    }
+
+    for _, probe in ipairs(probes) do
+        local ok, result = pcall(probe)
+        if ok and result then
+            local slots = ReadSlots(result)
+            if #slots > 0 then
+                return slots
+            end
+        end
+    end
+
+    return nil   -- couldn't auto-detect
+end
+
+-- Current loadout (starts from auto-detect, updated by Refresh or manual input)
+local BrawlerSlots = {"shelly", false, false}   -- default from your example
+
+local function RefreshLoadout()
+    local detected = TryGetEquippedBrawlers()
+    if detected then
+        BrawlerSlots[1] = detected[1] or false
+        BrawlerSlots[2] = detected[2] or false
+        BrawlerSlots[3] = detected[3] or false
+        return true, detected
+    end
+    return false, nil
+end
+
+-- Try auto-detect on startup
+RefreshLoadout()
+
+-- ============================================================
+--  AUTO TAB  –  Auto Clicker
+-- ============================================================
+AutoTab:CreateSection("Auto Clicker")
+AutoTab:CreateLabel("Fires ClickerTap every 0.1 s")
+
+local Clicking = false
+AutoTab:CreateToggle({
+    Name         = "Auto Click (0.1s)",
+    CurrentValue = false,
+    Flag         = "AutoClick",
+    Callback     = function(v)
+        Clicking = v
+        if Clicking then
+            StartManagedLoop("AutoClick", function() return Clicking end, function()
+                ClickerTap:FireServer()
+                return 0.1
+            end, 0.5)
         end
     end,
 })
 
-local ProgressionMacroDivider = MacroTab:CreateSection("Progression Macro")
-local ProgressionMacroLabel = MacroTab:CreateLabel("Progression Macro")
-local progressionmacro = false
-local ProgressionCoreUpgradeOrder = {
-   "grandfathers_wisdom",
-   "infinite_energy",
-   "omnipotato_blessing",
-    "transcendent_harvest",
-    "galactic_harvest"
+-- ============================================================
+--  UPGRADES TAB  –  Auto Upgrade Loop
+-- ============================================================
+UpgradeTab:CreateSection("Auto Upgrades")
+UpgradeTab:CreateLabel("Loops: ClickPower → CoinGenerator")
+
+local UpgradeList = {
+    { "ClickPower",    "single" },
+    { "CoinGenerator", "single" },
 }
-local AscensionUpgradeIndex = 1
-local ProgressionSellDelay = 10
-local ProgressionPrestigeDelay = 5
-local ProgressionAscensionDelay = 30
-local ProgressionLastSellAt = 0
-local ProgressionLastPrestigeAt = 0
-local ProgressionLastAscensionAt = 0
-local ProgressionMacroToggle = MacroTab:CreateToggle({
-    Name = "Progression Macro V2",
+
+local AutoUpgrade = false
+UpgradeTab:CreateToggle({
+    Name         = "Auto Upgrade Loop",
     CurrentValue = false,
-    Flag = "ProgressionMacroV1",
-    Callback = function(Value)
-        progressionmacro = Value
-
-        if progressionmacro then
-            ProgressionLastSellAt = os.clock()
-            ProgressionLastPrestigeAt = os.clock()
-            ProgressionLastAscensionAt = os.clock()
-            StartManagedLoop("ProgressionMacroV1", function()
-                return progressionmacro
-            end, function()
-                local now = os.clock()
-
-                -- PRIORITY 1: Ascension (cycles through abundance -> prestige -> thrifty)
-                if now - ProgressionLastAscensionAt >= ProgressionAscensionDelay then
-                    local ascType = MacroAscensionOrder[MacroAscensionIndex]
-                    PerformAscension:FireServer(ascType)
-                    MacroAscensionIndex = MacroAscensionIndex + 1
-                    if MacroAscensionIndex > #MacroAscensionOrder then
-                        MacroAscensionIndex = 1
-                    end
-                    ProgressionLastAscensionAt = now
-                    task.wait(0.5)
-                end
-
-                -- PRIORITY 2: Prestige
-                if now - ProgressionLastPrestigeAt >= ProgressionPrestigeDelay then
-                    PerformPrestige:FireServer()
-                    ProgressionLastPrestigeAt = now
-                    task.wait(0.3)
-                end
-
-                -- PRIORITY 3: Sell potatoes (every 5s)
-                if now - ProgressionLastSellAt >= ProgressionSellDelay then
-                    if ConversionEnabled then
-                        SellCurrentPotatoes()
-                        SellCurrentGoldenPotatoes()
-                    end
-                    ProgressionLastSellAt = now
+    Flag         = "AutoUpgradeLoop",
+    Callback     = function(v)
+        AutoUpgrade = v
+        if AutoUpgrade then
+            StartManagedLoop("AutoUpgradeLoop", function() return AutoUpgrade end, function()
+                for _, entry in ipairs(UpgradeList) do
+                    if not AutoUpgrade then break end
+                    PurchaseUpgrade:InvokeServer(entry[1], entry[2])
                     task.wait(0.2)
                 end
-
-                -- PRIORITY 4: Buy ascension upgrades (cycles abundance -> prestige -> thrifty)
-                local ascUpgrade = MacroAscensionOrder[AscensionUpgradeIndex]
-                PerformAscension:FireServer(ascUpgrade)
-                AscensionUpgradeIndex = AscensionUpgradeIndex + 1
-                if AscensionUpgradeIndex > #MacroAscensionOrder then
-                    AscensionUpgradeIndex = 1
-                end
-                task.wait(0.2)
-
-                if ClickerUpgradesEnabled then
-                    -- PRIORITY 5: Buy click upgrades
-                    for _, upgrade in ipairs(AutoUpgradeOrder) do
-                        if not progressionmacro then
-                            break
-                        end
-
-                        PurchaseClickUpgrade:FireServer(upgrade)
-                        task.wait(0.15)
-                    end
-
-                    -- PRIORITY 6: Buy core upgrades
-                    for _, upgrade in ipairs(ProgressionCoreUpgradeOrder) do
-                        if not progressionmacro then
-                            break
-                        end
-
-                        PurchaseClickUpgrade:FireServer(upgrade)
-                        task.wait(0.3)
-                    end
-                end
-
                 return 0.5
             end, 1)
         end
     end,
 })
 
-local NotificationContainer = player.PlayerGui:WaitForChild("PotatoGameGUI"):WaitForChild("NotificationContainer")
-local NoNotifToggle = MiscTab:CreateToggle({
-   Name = "Disable Notifications",
-   CurrentValue = false,
-   Flag = "DisableNotifications",
-   Callback = function(DisableNotifications)
-      NotificationContainer.Visible = not DisableNotifications
-   end,
+UpgradeTab:CreateSection("Individual Upgrades")
+
+local AutoClickPower = false
+UpgradeTab:CreateToggle({
+    Name         = "Auto Buy ClickPower",
+    CurrentValue = false,
+    Flag         = "AutoClickPower",
+    Callback     = function(v)
+        AutoClickPower = v
+        if AutoClickPower then
+            StartManagedLoop("AutoClickPower", function() return AutoClickPower end, function()
+                PurchaseUpgrade:InvokeServer("ClickPower", "single")
+                return 0.3
+            end, 1)
+        end
+    end,
 })
 
-local GeneratorFarm = false
-
-local GeneratorFarmToggle = MiscTab:CreateToggle({
-   Name = "Auto Farm Generator",
-   CurrentValue = false,
-   Flag = "GeneratorFarm",
-   Callback = function(GFarm)
-      GeneratorFarm = GFarm
-
-      if GeneratorFarm then
-         StartManagedLoop("GeneratorFarm", function()
-            return GeneratorFarm
-         end, function()
-            PurchaseGenerator:FireServer("potato_seedling")
-            DeleteGenerator:FireServer("potato_seedling")
-            return 0.05
-         end, 1)
-      end
-   end,
+local AutoCoinGen = false
+UpgradeTab:CreateToggle({
+    Name         = "Auto Buy CoinGenerator",
+    CurrentValue = false,
+    Flag         = "AutoCoinGenerator",
+    Callback     = function(v)
+        AutoCoinGen = v
+        if AutoCoinGen then
+            StartManagedLoop("AutoCoinGenerator", function() return AutoCoinGen end, function()
+                PurchaseUpgrade:InvokeServer("CoinGenerator", "single")
+                return 0.3
+            end, 1)
+        end
+    end,
 })
 
-local AutoBuyProductionPotion = false
-local ProductionAutoBuyToggle = ShopTab:CreateToggle({
-   Name = "Production AutoBuy",
-   CurrentValue = false,
-   Flag = "ProductionAutoBuy",
-   Callback = function(ProductionPotion)
-      AutoBuyProductionPotion = ProductionPotion
-      if AutoBuyProductionPotion then
-         StartManagedLoop("ProductionAutoBuy", function()
-            return AutoBuyProductionPotion
-         end, function()
-            PurchaseShopPotato:FireServer("potion_production")
-            return 60
-         end, 2)
-      end
-   end,
+-- ============================================================
+--  BATTLE TAB  –  Auto Battle (StartBattle every 26s)
+--  Brawler slots auto-read from player data, with manual override
+-- ============================================================
+BattleTab:CreateSection("Equipped Brawlers")
+BattleTab:CreateLabel("Auto-reads your loadout. Use Refresh or set manually.")
+
+-- Show current detected slots
+local function SlotDisplay()
+    local function fmt(v) return (v and tostring(v) ~= "false") and tostring(v) or "(empty)" end
+    return string.format("Slot 1: %s  |  Slot 2: %s  |  Slot 3: %s",
+        fmt(BrawlerSlots[1]), fmt(BrawlerSlots[2]), fmt(BrawlerSlots[3]))
+end
+
+local LoadoutLabel = BattleTab:CreateLabel(SlotDisplay())
+
+-- Refresh button — re-reads equipped brawlers from game data
+BattleTab:CreateButton({
+    Name     = "🔄 Refresh Loadout (auto-detect)",
+    Callback = function()
+        local ok, found = RefreshLoadout()
+        if ok then
+            LoadoutLabel:Set(SlotDisplay())
+            Rayfield:Notify({
+                Title    = "Loadout Refreshed",
+                Content  = SlotDisplay(),
+                Duration = 4,
+            })
+        else
+            Rayfield:Notify({
+                Title    = "Auto-Detect Failed",
+                Content  = "Set slots manually below.",
+                Duration = 4,
+            })
+        end
+    end,
 })
 
-local AutoBuyLuckPotion = false
-local LuckAutoBuyToggle = ShopTab:CreateToggle({
-   Name = "Luck AutoBuy",
-   CurrentValue = false,
-   Flag = "LuckAutoBuy",
-   Callback = function(LuckPotion)
-      AutoBuyLuckPotion = LuckPotion
-      if AutoBuyLuckPotion then
-         StartManagedLoop("LuckAutoBuy", function()
-            return AutoBuyLuckPotion
-         end, function()
-            PurchaseShopPotato:FireServer("potion_luck")
-            return 60
-         end, 2)
-      end
-   end,
+BattleTab:CreateSection("Manual Slot Override")
+BattleTab:CreateLabel("Leave blank to keep auto-detected value or 'false' for empty slot")
+
+BattleTab:CreateInput({
+    Name                = "Slot 1 Brawler Name",
+    PlaceholderText     = "e.g. shelly",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        if v == "" then return end
+        local lower = v:lower()
+        BrawlerSlots[1] = (lower == "false" or lower == "nil" or lower == "none") and false or v
+        LoadoutLabel:Set(SlotDisplay())
+    end,
 })
 
-local AutoBuyGoldenPotion = false
-local GoldenAutoBuyToggle = ShopTab:CreateToggle({
-   Name = "GoldenAutoBuy",
-   CurrentValue = false,
-   Flag = "GoldenAutoBuy",
-   Callback = function(GoldenPotion)
-      AutoBuyGoldenPotion = GoldenPotion
-      if AutoBuyGoldenPotion then
-         StartManagedLoop("GoldenAutoBuy", function()
-            return AutoBuyGoldenPotion
-         end, function()
-            PurchaseShopPotato:FireServer("potion_golden")
-            return 60
-         end, 2)
-      end
-   end,
-})
-local AutoBuyClickPotion = false
-local ClickAutoBuyToggle = ShopTab:CreateToggle({
-   Name = "Click AutoBuy",
-   CurrentValue = false,
-   Flag = "ClickAutoBuy",
-   Callback = function(ClickPotion)
-      AutoBuyClickPotion = ClickPotion
-      if AutoBuyClickPotion then
-         StartManagedLoop("ClickAutoBuy", function()
-            return AutoBuyClickPotion
-         end, function()
-            PurchaseShopPotato:FireServer("potion_click")
-            return 60
-         end, 2)
-      end
-   end,
+BattleTab:CreateInput({
+    Name                = "Slot 2 Brawler Name",
+    PlaceholderText     = "e.g. colt  (or 'false' for empty)",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        if v == "" then return end
+        local lower = v:lower()
+        BrawlerSlots[2] = (lower == "false" or lower == "nil" or lower == "none") and false or v
+        LoadoutLabel:Set(SlotDisplay())
+    end,
 })
 
-local AutoBuyEmojiPotato = false
-local EmojiPotatoAutoBuyToggle = ShopTab:CreateToggle({
-   Name = "Emoji Mystery Potato AutoBuy",
-   CurrentValue = false,
-   Flag = "EmojiBuy",
-   Callback = function(EmojiAutoBuy)
-      AutoBuyEmojiPotato = EmojiAutoBuy
-      if AutoBuyEmojiPotato then
-         StartManagedLoop("EmojiPotatoAutoBuy", function()
-            return AutoBuyEmojiPotato
-         end, function()
-            PurchaseShopPotato:FireServer("emoji_mystery_potato")
-            return 60
-         end, 2)
-      end
-   end,
+BattleTab:CreateInput({
+    Name                = "Slot 3 Brawler Name",
+    PlaceholderText     = "e.g. bull  (or 'false' for empty)",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        if v == "" then return end
+        local lower = v:lower()
+        BrawlerSlots[3] = (lower == "false" or lower == "nil" or lower == "none") and false or v
+        LoadoutLabel:Set(SlotDisplay())
+    end,
 })
+
+BattleTab:CreateSection("Auto Battle")
+
+local BattleDelay = 26
+BattleTab:CreateInput({
+    Name                = "Battle Delay (seconds)",
+    PlaceholderText     = "Default: 26",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        BattleDelay = tonumber(v) or 26
+    end,
+})
+
+local AutoBattle = false
+BattleTab:CreateToggle({
+    Name         = "Auto Battle (TrainingYard)",
+    CurrentValue = false,
+    Flag         = "AutoBattle",
+    Callback     = function(v)
+        AutoBattle = v
+        if AutoBattle then
+            -- Try one more auto-detect before starting
+            RefreshLoadout()
+            LoadoutLabel:Set(SlotDisplay())
+
+            StartManagedLoop("AutoBattle", function() return AutoBattle end, function()
+                -- Re-read loadout every iteration so equip changes are picked up
+                RefreshLoadout()
+
+                local args = {
+                    [1] = "TrainingYard",
+                    [2] = {
+                        [1] = BrawlerSlots[1],
+                        [2] = BrawlerSlots[2],
+                        [3] = BrawlerSlots[3],
+                    },
+                }
+                StartBattle:InvokeServer(unpack(args))
+                return BattleDelay
+            end, 2)
+        end
+    end,
+})
+
+-- ============================================================
+--  REBIRTH TAB  –  Auto Rebirth  (PurchaseRebirth, no args)
+-- ============================================================
+RebirthTab:CreateSection("Auto Rebirth")
+RebirthTab:CreateLabel("Invokes PurchaseRebirth on a timer")
+
+local RebirthDelay = 30
+RebirthTab:CreateInput({
+    Name                = "Rebirth Delay (seconds)",
+    PlaceholderText     = "Default: 30",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        RebirthDelay = tonumber(v) or 30
+    end,
+})
+
+local AutoRebirth = false
+RebirthTab:CreateToggle({
+    Name         = "Auto Rebirth",
+    CurrentValue = false,
+    Flag         = "AutoRebirth",
+    Callback     = function(v)
+        AutoRebirth = v
+        if AutoRebirth then
+            StartManagedLoop("AutoRebirth", function() return AutoRebirth end, function()
+                PurchaseRebirth:InvokeServer()
+                return RebirthDelay
+            end, 2)
+        end
+    end,
+})
+
+-- ============================================================
+--  MACRO TAB  –  ClickerMax  (all-in-one, optimal order)
+--
+--  ORDER RATIONALE:
+--    1. ClickPower upgrade  — boost each tap first
+--    2. CoinGenerator upgrade — passive income
+--    3. Auto tap            — earn with boosted value
+--    4. Battle              — every 26s for battle rewards
+--    5. Rebirth             — configurable timer for multipliers
+-- ============================================================
+MacroTab:CreateSection("ClickerMax Macro")
+MacroTab:CreateLabel("Click → Upgrades → Battle → Rebirth")
+
+local MacroRunning      = false
+local MacroBattleDelay  = 26
+local MacroRebirthDelay = 60
+local MacroLastBattle   = 0
+local MacroLastRebirth  = 0
+
+MacroTab:CreateInput({
+    Name                = "Macro Battle Delay (s)",
+    PlaceholderText     = "Default: 26",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v) MacroBattleDelay = tonumber(v) or 26 end,
+})
+
+MacroTab:CreateInput({
+    Name                = "Macro Rebirth Delay (s)",
+    PlaceholderText     = "Default: 60",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v) MacroRebirthDelay = tonumber(v) or 60 end,
+})
+
+MacroTab:CreateToggle({
+    Name         = "ClickerMax Macro",
+    CurrentValue = false,
+    Flag         = "ClickerMaxMacro",
+    Callback     = function(v)
+        MacroRunning     = v
+        MacroLastBattle  = os.clock() - MacroBattleDelay   -- fire battle immediately
+        MacroLastRebirth = os.clock()
+
+        if MacroRunning then
+            RefreshLoadout()   -- snapshot loadout at macro start
+
+            StartManagedLoop("ClickerMaxMacro", function() return MacroRunning end, function()
+                local now = os.clock()
+
+                -- 1. Buy ClickPower
+                PurchaseUpgrade:InvokeServer("ClickPower", "single")
+                task.wait(0.05)
+
+                -- 2. Buy CoinGenerator
+                PurchaseUpgrade:InvokeServer("CoinGenerator", "single")
+                task.wait(0.05)
+
+                -- 3. Tap / click
+                ClickerTap:FireServer()
+                task.wait(0.05)
+
+                -- 4. Battle (every MacroBattleDelay seconds)
+                if now - MacroLastBattle >= MacroBattleDelay then
+                    RefreshLoadout()   -- pick up any equip changes
+                    StartBattle:InvokeServer("TrainingYard", {
+                        [1] = BrawlerSlots[1],
+                        [2] = BrawlerSlots[2],
+                        [3] = BrawlerSlots[3],
+                    })
+                    MacroLastBattle = now
+                    task.wait(0.5)
+                end
+
+                -- 5. Rebirth (every MacroRebirthDelay seconds)
+                if now - MacroLastRebirth >= MacroRebirthDelay then
+                    PurchaseRebirth:InvokeServer()
+                    MacroLastRebirth = now
+                    task.wait(0.5)
+                end
+
+                return 0   -- loop as fast as possible
+            end, 1)
+        end
+    end,
+})
+
+-- ============================================================
+--  MISC TAB  –  Anti-Idle
+-- ============================================================
+MiscTab:CreateSection("Anti-Idle")
 
 if getconnections then
-    for _, connection in pairs(getconnections(player.Idled)) do
-        if connection.Disable then
-            connection:Disable()
-        elseif connection.Disconnect then
-            connection:Disconnect()
-        end
+    for _, c in pairs(getconnections(player.Idled)) do
+        if c.Disable then c:Disable() elseif c.Disconnect then c:Disconnect() end
     end
 else
     player.Idled:Connect(function()
-        VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+        VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
         task.wait(1)
-        VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+        VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
     end)
 end
 
+MiscTab:CreateLabel("Anti-idle is active automatically")
+
+-- ── Load saved config ─────────────────────────────────────────
 Rayfield:LoadConfiguration()
