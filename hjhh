@@ -153,10 +153,10 @@ UpgradeTab:CreateToggle({
 })
 
 -- ============================================================
---  ROLL TAB  –  Auto Roll (RollDice "golden")
+--  ROLL TAB  –  Auto Roll (Golden & Regular)
 -- ============================================================
 RollTab:CreateSection("Auto Roll")
-RollTab:CreateLabel("Invokes RollDice:InvokeServer(\"golden\") on a loop")
+RollTab:CreateLabel("Invokes Golden & Regular rolls on a loop")
 
 local RollDelay = 5   -- default delay in seconds
 
@@ -174,7 +174,7 @@ RollTab:CreateInput({
 
 local AutoRoll = false
 RollTab:CreateToggle({
-    Name         = "Auto Roll (golden)",
+    Name         = "Auto Roll (Golden + Regular)",
     CurrentValue = false,
     Flag         = "AutoRoll",
     Callback     = function(v)
@@ -182,6 +182,8 @@ RollTab:CreateToggle({
         if AutoRoll then
             StartManagedLoop("AutoRoll", function() return AutoRoll end, function()
                 RollDice:InvokeServer("golden")
+                task.wait(0.1)
+                RollDice:InvokeServer("regular")
                 return RollDelay
             end, 1)
         end
