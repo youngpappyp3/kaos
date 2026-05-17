@@ -1,24 +1,49 @@
 -- ============================================================
---  Pets Adventure Hub | Rayfield UI
---  Single-file automation hub for the decompiled Pets Adventure place.
---  Features: pet target farming, equip/action automation, upgrades,
---            rebirth, rewards, spins, fountain, eggs/chests/potions,
---            crafting, merchant, teleport, macro, anti-idle.
+--  Brawl RNG Hub  |  Rayfield UI
+--  Tabs: Auto / Upgrades / Battle / Dice / Ranked / Codes / Macro / Misc
+--  Features: AutoClick, AutoRebirth, AutoClaimRewards, AutoClickerBonus,
+--            AutoUpgrade, AutoBattle+Collect+OpenBoxes, AutoDice,
+--            AutoRanked, AutoRedeemCodes, BrawlMax Macro
 -- ============================================================
 
 local CoreGui = game:GetService("CoreGui")
 local old = CoreGui:FindFirstChild("Rayfield")
 if old then old:Destroy() end
 
-local Players = game:GetService("Players")
+local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local CollectionService = game:GetService("CollectionService")
-local VirtualUser = game:GetService("VirtualUser")
-local Workspace = game:GetService("Workspace")
-local player = Players.LocalPlayer
-local HUB_VERSION = "2026-05-17-pets-adventure-auto"
+local VirtualUser       = game:GetService("VirtualUser")
+local player            = Players.LocalPlayer
+local HUB_VERSION       = "2026-05-17-server-check-brawler-upgrade"
 
-local Remotes = ReplicatedStorage:WaitForChild("Remotes", 9e9)
+-- Remotes
+local Remotes              = ReplicatedStorage:WaitForChild("Remotes", 9e9)
+local ClickerTap           = Remotes:WaitForChild("ClickerTap",              9e9)
+local SetAutoClickerEnabled= Remotes:WaitForChild("SetAutoClickerEnabled",   9e9)
+local GetUpgradeState      = Remotes:WaitForChild("GetUpgradeState",         9e9)
+local PurchaseUpgrade      = Remotes:WaitForChild("PurchaseUpgrade",         9e9)
+local PurchaseRebirth      = Remotes:WaitForChild("PurchaseRebirth",         9e9)
+local RollDice             = Remotes:WaitForChild("RollDice",                9e9)
+local RequestBattleMaps    = Remotes:WaitForChild("RequestBattleMaps",       9e9)
+local StartBattle          = Remotes:WaitForChild("StartBattle",             9e9)
+local AcknowledgeBattleResult = Remotes:WaitForChild("AcknowledgeBattleResult", 9e9)
+local GetBattleState       = Remotes:WaitForChild("GetBattleState",          9e9)
+local RedeemCode           = Remotes:WaitForChild("RedeemCode",              9e9)
+local ClaimDailyReward     = Remotes:WaitForChild("ClaimDailyReward",        9e9)
+local ClaimAchievementReward = Remotes:WaitForChild("ClaimAchievementReward",9e9)
+local ClaimTrophyRoadRankUpReward = Remotes:WaitForChild("ClaimTrophyRoadRankUpReward", 9e9)
+local GetInventorySnapshot = Remotes:WaitForChild("GetInventorySnapshot",    9e9)
+local SetPlayerSettings    = Remotes:WaitForChild("SetPlayerSettings",       9e9)
+local RedeemClickerBonus   = Remotes:WaitForChild("RedeemClickerBonus",      9e9)
+local SelectBrawler        = Remotes:WaitForChild("SelectBrawler",           9e9)
+local SetSelectedBattleSlots = Remotes:WaitForChild("SetSelectedBattleSlots", 9e9)
+local PurchaseBrawlerUpgrade = Remotes:FindFirstChild("PurchaseBrawlerUpgrade") or Remotes:WaitForChild("PurchaseBrawlerUpgrade", 5)
+local OpenDeferredBattleReward = Remotes:FindFirstChild("OpenDeferredBattleReward") or Remotes:WaitForChild("OpenDeferredBattleReward", 5)
+local OpenDeferredBattleRewards = Remotes:FindFirstChild("OpenDeferredBattleRewards") or Remotes:WaitForChild("OpenDeferredBattleRewards", 5)
+local RankedMatchStart     = Remotes:FindFirstChild("RankedMatchStart") or Remotes:WaitForChild("RankedMatchStart", 5)
+local RankedRoundResolve   = Remotes:FindFirstChild("RankedRoundResolve") or Remotes:WaitForChild("RankedRoundResolve", 5)
+local RankedMatchFinish    = Remotes:FindFirstChild("RankedMatchFinish") or Remotes:WaitForChild("RankedMatchFinish", 5)
+local RankedRewardRoll     = Remotes:FindFirstChild("RankedRewardRoll") or Remotes:WaitForChild("RankedRewardRoll", 5)
 
 local function SafeRequireModule(...)
     local node = ReplicatedStorage
@@ -28,9 +53,11 @@ local function SafeRequireModule(...)
             return nil
         end
     end
+
     if not node:IsA("ModuleScript") then
         return nil
     end
+
     local ok, result = pcall(require, node)
     if ok then
         return result
@@ -38,125 +65,82 @@ local function SafeRequireModule(...)
     return nil
 end
 
-local UpgradeConfig = SafeRequireModule("Shared", "UpgradeConfig")
-local RebirthConfig = SafeRequireModule("Shared", "RebirthConfig")
-local ItemConfig = SafeRequireModule("Shared", "ItemConfig")
-local PetConfig = SafeRequireModule("Shared", "PetConfig")
-local DailyRewardsConfig = SafeRequireModule("Shared", "DailyRewardsConfig")
-local ResourceConfig = SafeRequireModule("Shared", "ResourceConfig")
-local MobConfig = SafeRequireModule("Shared", "MobConfig")
-local CraftingConfig = SafeRequireModule("Shared", "CraftingConfig")
-local MerchantConfig = SafeRequireModule("Shared", "MerchantConfig")
-local InnerAbilitiesConfig = SafeRequireModule("Shared", "InnerAbilitiesConfig")
-local WishingFountainConfig = SafeRequireModule("Shared", "WishingFountainConfig")
-local ZoneConfig = SafeRequireModule("ZoneConfig")
-
-local RemoteCache = {}
-local function GetRemote(name, timeout)
-    if RemoteCache[name] ~= nil then
-        return RemoteCache[name] or nil
-    end
-    local remote = Remotes:FindFirstChild(name)
-    if not remote and timeout and timeout > 0 then
-        remote = Remotes:WaitForChild(name, timeout)
-    end
-    RemoteCache[name] = remote or false
-    return remote
-end
-
-local function SafeInvoke(remoteOrName, ...)
-    local remote = typeof(remoteOrName) == "string" and GetRemote(remoteOrName) or remoteOrName
-    if not remote then
-        return false, nil
-    end
-    if remote:IsA("RemoteFunction") then
-        return pcall(function(...)
-            return remote:InvokeServer(...)
-        end, ...)
-    end
-    if remote:IsA("RemoteEvent") then
-        return pcall(function(...)
-            remote:FireServer(...)
-            return true
-        end, ...)
-    end
-    return false, nil
-end
-
-local function SafeFire(remoteOrName, ...)
-    local ok = SafeInvoke(remoteOrName, ...)
-    return ok == true
-end
+local BattleConfig = SafeRequireModule("UI", "Modules", "BattleConfig")
+local UpgradesConfig = SafeRequireModule("UI", "Modules", "UpgradesConfig")
+local AchievementConfig = SafeRequireModule("UI", "Modules", "AchievementConfig")
+local BrawlerLibrary = SafeRequireModule("UI", "Modules", "BrawlerLibrary")
+local BrawlerInventoryState = SafeRequireModule("UI", "Modules", "BrawlerInventoryState")
+local BrawlerProgressionConfig = SafeRequireModule("UI", "Modules", "BrawlerProgressionConfig")
 
 -- Rayfield
 local RayfieldOk, RayfieldSource = pcall(function()
     return game:HttpGet("https://sirius.menu/rayfield", true)
 end)
 assert(RayfieldOk and type(RayfieldSource) == "string" and #RayfieldSource > 0, "Failed to download Rayfield: " .. tostring(RayfieldSource))
+
 local RayfieldChunk, RayfieldLoadError = loadstring(RayfieldSource)
 assert(RayfieldChunk, "Failed to parse Rayfield: " .. tostring(RayfieldLoadError))
+
 local Rayfield = RayfieldChunk()
 
 local Window = Rayfield:CreateWindow({
-    Name = "Pets Adventure Hub",
-    LoadingTitle = "Pets Adventure",
+    Name            = "Brawl RNG Hub",
+    LoadingTitle    = "Brawl RNG",
     LoadingSubtitle = "Loading...",
     ConfigurationSaving = {
-        Enabled = true,
-        FolderName = "PetsAdventureHub",
-        FileName = "PetsAdventureHubConfig",
+        Enabled    = true,
+        FolderName = "BrawlRNGHub",
+        FileName   = "BrawlRNGHubConfig",
     },
     KeySystem = false,
 })
 
-local FarmTab = Window:CreateTab("Farm", 4483362458)
-local PetsTab = Window:CreateTab("Pets", 4483362458)
-local UpgradeTab = Window:CreateTab("Upgrades", 4483362458)
-local RewardsTab = Window:CreateTab("Rewards", 4483362458)
-local InventoryTab = Window:CreateTab("Inventory", 4483362458)
-local CraftTab = Window:CreateTab("Craft", 4483362458)
-local MerchantTab = Window:CreateTab("Merchant", 4483362458)
-local TeleportTab = Window:CreateTab("Teleport", 4483362458)
-local MacroTab = Window:CreateTab("Macro", 4483362458)
-local MiscTab = Window:CreateTab("Misc", 4483362458)
+-- Tabs
+local AutoTab     = Window:CreateTab("Auto",      4483362458)
+local UpgradeTab  = Window:CreateTab("Upgrades",  4483362458)
+local BattleTab   = Window:CreateTab("Battle",    4483362458)
+local DiceTab     = Window:CreateTab("Dice",      4483362458)
+local RankedTab   = Window:CreateTab("Ranked",    4483362458)
+local CodesTab    = Window:CreateTab("Codes",     4483362458)
+local MacroTab    = Window:CreateTab("Macro",     4483362458)
+local MiscTab     = Window:CreateTab("Misc",      4483362458)
 
+-- Managed loop helper
 local ActiveLoops = {}
+local UpgradeList
+local BattleStatusLabel
+local BattleOfferLabel
+local BattleResultLabel
+local BattleSlotsLabel
+local RankedStatusLabel
+local RankedResultLabel
+local LastBattleResultText = "Last Result: -"
+local LastBattleOfferText = "Offer: -"
+local LastBattleStatusText = "Status: Idle"
+local LastBattleSlotsText = "Slots: -"
+local LastRankedStatusText = "Status: Idle"
+local LastRankedResultText = "Last Result: -"
+local BattleMapChoice = "TrainingYard"
+local LastBattleRoleMap = "TrainingYard"
+local RankedBrawlerMode = "Best Overall"
+local RuntimeSettings = {
+    AutoRankedRewardRoll = true,
+    RankedDelay = 10,
+    RankedRoundDelay = 4.5,
+    RankedPostMatchDelay = 10,
+}
+
 local LabelTextCache = setmetatable({}, { __mode = "k" })
-local ErrorCooldown = {}
+local NumberValueCache = {}
+local InventorySnapshotCache
+local InventorySnapshotCacheTime = 0
+local UpgradeSnapshotCache
+local UpgradeSnapshotCacheTime = 0
 local MIN_LOOP_WAIT = 0.03
+local INVENTORY_CACHE_SECONDS = 1
+local UPGRADE_CACHE_SECONDS = 0.25
 
-local DataCache = {
-    Currencies = {},
-    Inventory = {},
-    Upgrades = {},
-    Settings = {},
-    RebirthCount = 0,
-}
-local PetDataCache = {
-    Owned = {},
-    Equipped = {},
-    LockedPets = {},
-    Knockouts = {},
-    MountPetId = "",
-}
-local DailyCache = { totalPlaytime = 0, claimed = {} }
-local SpinCache = { Spins = 0, FreeSpins = 0 }
-local InnerAbilityCache = { unlockedSlots = 2, slots = {} }
-local CraftingCache = {}
-local CollectionCache = {}
-local RelicCollectionCache = {}
-
-local LastFarmStatusText = "Status: Idle"
-local LastTargetText = "Target: -"
-local FarmStatusLabel
-local FarmTargetLabel
-local UpgradeStatusLabel
-local RewardStatusLabel
-local InventoryStatusLabel
-local CraftStatusLabel
-local MerchantStatusLabel
-local TeleportStatusLabel
-local MacroStatusLabel
+local ErrorCooldown = {}
 
 local function HubWarn(context, err)
     local now = os.clock()
@@ -165,14 +149,22 @@ local function HubWarn(context, err)
         return
     end
     ErrorCooldown[key] = now
-    warn("[PetsAdventure Hub] " .. key .. ": " .. tostring(err))
+    warn("[BrawlRNG Hub] " .. key .. ": " .. tostring(err))
 end
 
 local function HubDebug(context, message)
-    warn("[PetsAdventure Hub] " .. tostring(context or "Debug") .. ": " .. tostring(message or ""))
+    warn("[BrawlRNG Hub] " .. tostring(context or "Debug") .. ": " .. tostring(message or ""))
 end
 
 HubDebug("Version", HUB_VERSION)
+
+local function HasConfigFileAccess()
+    return type(readfile) == "function"
+        and type(writefile) == "function"
+        and type(isfile) == "function"
+        and type(isfolder) == "function"
+        and type(makefolder) == "function"
+end
 
 local function SafeNotify(data)
     if Rayfield and type(Rayfield.Notify) == "function" then
@@ -185,6 +177,30 @@ local function SafeNotify(data)
     end
 end
 
+if not HasConfigFileAccess() then
+    HubWarn("ConfigSaving", "Executor file APIs missing; settings may not save after rejoin")
+end
+
+local function GetDropdownChoice(value, fallback)
+    if typeof(value) == "table" then
+        return value[1] or fallback
+    end
+    if value ~= nil then
+        return value
+    end
+    return fallback
+end
+
+local function InvalidateInventorySnapshot()
+    InventorySnapshotCache = nil
+    InventorySnapshotCacheTime = 0
+end
+
+local function InvalidateUpgradeSnapshot()
+    UpgradeSnapshotCache = nil
+    UpgradeSnapshotCacheTime = 0
+end
+
 local function StartManagedLoop(name, isRunning, tickFn, errDelay)
     if ActiveLoops[name] then return end
     ActiveLoops[name] = true
@@ -194,7 +210,11 @@ local function StartManagedLoop(name, isRunning, tickFn, errDelay)
                 return tostring(err) .. "\n" .. debug.traceback()
             end)
             if ok then
-                task.wait(math.max(type(waitTime) == "number" and waitTime or MIN_LOOP_WAIT, MIN_LOOP_WAIT))
+                if type(waitTime) == "number" and waitTime > 0 then
+                    task.wait(math.max(waitTime, MIN_LOOP_WAIT))
+                else
+                    task.wait(MIN_LOOP_WAIT)
+                end
             else
                 HubWarn("Loop " .. tostring(name), waitTime)
                 task.wait(math.max(tonumber(errDelay) or 1, MIN_LOOP_WAIT))
@@ -208,1691 +228,2931 @@ local function SetRayfieldLabel(label, text)
     if not label then
         return
     end
+
     text = tostring(text or "")
     if LabelTextCache[label] == text then
         return
     end
+
     local ok = false
     if label.Set then
-        ok = pcall(function() label:Set(text) end)
+        ok = pcall(function()
+            label:Set(text)
+        end)
     elseif label.Update then
-        ok = pcall(function() label:Update(text) end)
+        ok = pcall(function()
+            label:Update(text)
+        end)
     end
+
     if ok then
         LabelTextCache[label] = text
     end
 end
 
-local function SetStatus(label, prefix, text)
-    SetRayfieldLabel(label, tostring(prefix or "Status") .. ": " .. tostring(text or "-"))
+local function UpdateBattleLabels()
+    SetRayfieldLabel(BattleStatusLabel, LastBattleStatusText)
+    SetRayfieldLabel(BattleOfferLabel, LastBattleOfferText)
+    SetRayfieldLabel(BattleResultLabel, LastBattleResultText)
+    SetRayfieldLabel(BattleSlotsLabel, LastBattleSlotsText)
 end
 
-local function GetDropdownChoice(value, fallback)
-    if typeof(value) == "table" then
-        return value[1] or fallback
-    end
-    if value ~= nil then
-        return value
-    end
-    return fallback
+local function SetBattleStatus(text)
+    LastBattleStatusText = "Status: " .. tostring(text or "-")
+    SetRayfieldLabel(BattleStatusLabel, LastBattleStatusText)
 end
 
-local function MergeTable(dst, src)
-    if typeof(dst) ~= "table" or typeof(src) ~= "table" then
-        return
+local function SetBattleOffer(mapIds, chosenMap)
+    local offerText = "-"
+    if typeof(mapIds) == "table" and #mapIds > 0 then
+        offerText = table.concat(mapIds, ", ")
     end
-    for k, v in pairs(src) do
-        dst[k] = v
+
+    if chosenMap then
+        LastBattleOfferText = "Offer: " .. offerText .. " | Chosen: " .. tostring(chosenMap)
+    else
+        LastBattleOfferText = "Offer: " .. offerText
     end
+    SetRayfieldLabel(BattleOfferLabel, LastBattleOfferText)
 end
 
-local function ConnectRemoteEvents()
-    local dataSync = GetRemote("DataSync")
-    if dataSync and dataSync:IsA("RemoteEvent") then
-        dataSync.OnClientEvent:Connect(function(syncType, payload)
-            if typeof(payload) ~= "table" then
-                return
-            end
-            if syncType == "Full" then
-                MergeTable(DataCache, payload)
-            elseif syncType == "InventoryDelta" and typeof(payload.full) == "table" then
-                DataCache.Inventory = payload.full
-            elseif syncType == "CurrencyDelta" and typeof(payload.Currencies) == "table" then
-                DataCache.Currencies = payload.Currencies
-            elseif syncType == "UpgradeDelta" and typeof(payload.Upgrades) == "table" then
-                DataCache.Upgrades = payload.Upgrades
-            end
-        end)
-    end
-
-    local petDataSync = GetRemote("PetDataSync")
-    if petDataSync and petDataSync:IsA("RemoteEvent") then
-        petDataSync.OnClientEvent:Connect(function(payload)
-            if typeof(payload) == "table" then
-                MergeTable(PetDataCache, payload)
-            end
-        end)
-    end
-
-    local upgradeSync = GetRemote("UpgradeSync")
-    if upgradeSync and upgradeSync:IsA("RemoteEvent") then
-        upgradeSync.OnClientEvent:Connect(function(payload)
-            if typeof(payload) == "table" then
-                DataCache.Upgrades = payload
-            end
-        end)
-    end
-
-    local dailySync = GetRemote("DailyRewardsSync")
-    if dailySync and dailySync:IsA("RemoteEvent") then
-        dailySync.OnClientEvent:Connect(function(payload)
-            if typeof(payload) == "table" then
-                MergeTable(DailyCache, payload)
-            end
-        end)
-    end
-
-    local spinSync = GetRemote("SpinSync")
-    if spinSync and spinSync:IsA("RemoteEvent") then
-        spinSync.OnClientEvent:Connect(function(payload)
-            if typeof(payload) == "table" then
-                MergeTable(SpinCache, payload)
-            end
-        end)
-    end
-
-    local innerSync = GetRemote("InnerAbilitiesSync")
-    if innerSync and innerSync:IsA("RemoteEvent") then
-        innerSync.OnClientEvent:Connect(function(payload)
-            if typeof(payload) == "table" then
-                MergeTable(InnerAbilityCache, payload)
-            end
-        end)
-    end
-
-    local craftingSync = GetRemote("CraftingSync")
-    if craftingSync and craftingSync:IsA("RemoteEvent") then
-        craftingSync.OnClientEvent:Connect(function(payload)
-            if typeof(payload) == "table" then
-                CraftingCache = payload
-            end
-        end)
-    end
-
-    local collectionSync = GetRemote("CollectionSync")
-    if collectionSync and collectionSync:IsA("RemoteEvent") then
-        collectionSync.OnClientEvent:Connect(function(payload)
-            if typeof(payload) == "table" then
-                CollectionCache = payload
-            end
-        end)
-    end
-
-    local relicCollectionSync = GetRemote("RelicCollectionSync")
-    if relicCollectionSync and relicCollectionSync:IsA("RemoteEvent") then
-        relicCollectionSync.OnClientEvent:Connect(function(payload)
-            if typeof(payload) == "table" then
-                RelicCollectionCache = payload
-            end
-        end)
-    end
-end
-
-ConnectRemoteEvents()
-
-local function RequestAllSync()
-    SafeFire("RequestData")
-    SafeFire("PetRequestSync")
-    SafeFire("CollectionSync")
-    SafeFire("RelicCollectionSync")
-    SafeFire("SpinSync")
-    SafeFire("SocialBoostRequestSync")
-    SafeFire("SpecialDealsRequestSync")
-    SafeFire("RequestBonuses")
-end
-
-task.spawn(function()
-    task.wait(0.5)
-    RequestAllSync()
-end)
-
-local function GetCurrency(id)
-    return tonumber(DataCache.Currencies and DataCache.Currencies[id]) or 0
-end
-
-local function GetLeaderLevel()
-    local leaderstats = player:FindFirstChild("leaderstats")
-    local level = leaderstats and leaderstats:FindFirstChild("Level")
-    return level and tonumber(level.Value) or 0
-end
-
-local function GetInventoryItemCount(itemId)
-    local count = 0
-    if typeof(DataCache.Inventory) ~= "table" then
-        return 0
-    end
-    for _, entry in pairs(DataCache.Inventory) do
-        if typeof(entry) == "table" and entry.id == itemId then
-            count += math.max(1, math.floor(tonumber(entry.quantity or entry.count) or 1))
-        end
-    end
-    return count
-end
-
-local function GetInventoryEntriesByType(itemType)
-    local entries = {}
-    if typeof(DataCache.Inventory) ~= "table" or not ItemConfig then
-        return entries
-    end
-    for _, entry in pairs(DataCache.Inventory) do
-        if typeof(entry) == "table" and typeof(entry.id) == "string" then
-            local item = ItemConfig.GetItem and ItemConfig.GetItem(entry.id)
-            if item and item.type == itemType then
-                entries[#entries + 1] = {
-                    id = entry.id,
-                    quantity = math.max(1, math.floor(tonumber(entry.quantity or entry.count) or 1)),
-                    untradable = entry.untradable,
-                }
+local function SetBattleSlots(slots)
+    local names = {}
+    if typeof(slots) == "table" then
+        for _, slot in ipairs(slots) do
+            if typeof(slot) == "string" then
+                names[#names + 1] = slot
             end
         end
     end
-    return entries
+    LastBattleSlotsText = "Slots: " .. (#names > 0 and table.concat(names, ", ") or "-")
+    SetRayfieldLabel(BattleSlotsLabel, LastBattleSlotsText)
 end
 
-local function GetPetLevel(pet)
-    if not PetConfig or not PetConfig.GetLevelFromXP then
-        return 0
-    end
-    return tonumber(PetConfig.GetLevelFromXP(tonumber(pet and pet.xp) or 0)) or 0
-end
-
-local function GetPetRarityScore(petId)
-    if not PetConfig then
-        return 0
-    end
-    local pet = PetConfig.GetPet and PetConfig.GetPet(petId) or (PetConfig.Pets and PetConfig.Pets[petId])
-    local rarity = pet and pet.rarity or "Common"
-    local order = PetConfig.RarityOrder or {}
-    for i, name in ipairs(order) do
-        if name == rarity then
-            return i
+local function SetBattleResult(result)
+    if typeof(result) == "table" then
+        local outcome = result.didWin == true and "W" or "L"
+        local mapId = tostring(result.mapId or "?")
+        local chance = tonumber(result.winChance)
+        if chance then
+            LastBattleResultText = string.format("Last Result: %s | %s | %d%%", outcome, mapId, chance)
+        else
+            LastBattleResultText = "Last Result: " .. outcome .. " | " .. mapId
         end
+    else
+        LastBattleResultText = "Last Result: -"
     end
-    return 0
+    SetRayfieldLabel(BattleResultLabel, LastBattleResultText)
 end
 
-local function GetBestOwnedPet()
-    local best
-    if typeof(PetDataCache.Owned) ~= "table" then
+local function SetRankedStatus(text)
+    LastRankedStatusText = "Status: " .. tostring(text or "-")
+    SetRayfieldLabel(RankedStatusLabel, LastRankedStatusText)
+end
+
+local function SetRankedResult(text)
+    LastRankedResultText = "Last Result: " .. tostring(text or "-")
+    SetRayfieldLabel(RankedResultLabel, LastRankedResultText)
+end
+
+local function SafeInvoke(remote, ...)
+    if not remote then
+        return false, nil
+    end
+
+    if remote:IsA("RemoteFunction") then
+        return pcall(function(...)
+            return remote:InvokeServer(...)
+        end, ...)
+    end
+
+    if remote:IsA("RemoteEvent") then
+        return pcall(function(...)
+            remote:FireServer(...)
+            return true
+        end, ...)
+    end
+
+    return false, nil
+end
+
+local function SafeFire(remote, ...)
+    if not remote then
+        return false
+    end
+
+    if remote:IsA("RemoteEvent") then
+        local ok = pcall(function(...)
+            remote:FireServer(...)
+        end, ...)
+        return ok
+    end
+
+    if remote:IsA("RemoteFunction") then
+        local ok = pcall(function(...)
+            remote:InvokeServer(...)
+        end, ...)
+        return ok
+    end
+
+    return false
+end
+
+local BattleMapOrder = {
+    TrainingYard = 1,
+    CoinCave = 2,
+    GemTunnel = 3,
+    PowerPit = 4,
+    ScrapYard = 5,
+    TrophyTrail = 6,
+    HeistRoom = 7,
+    AmbushValley = 8,
+    BossVault = 9,
+    WildZone = 10,
+    SurvivalPit = 11,
+    StarVault = 12,
+}
+
+local BrawlerRarityScore = {
+    StartingBrawler = 1,
+    Rare = 2,
+    SuperRare = 3,
+    Epic = 4,
+    Mythic = 5,
+    Legendary = 6,
+    UltraLegendary = 7,
+}
+
+local GetMapPreview
+local OpenAllDeferredBattleRewards
+
+local function GetBrawlerClassKey(brawlerId)
+    if not BrawlerLibrary then
         return nil
     end
-    for _, pet in pairs(PetDataCache.Owned) do
-        if typeof(pet) == "table" and typeof(pet.uniqueId) == "string" then
-            local score = GetPetLevel(pet) * 1000 + GetPetRarityScore(pet.petId) * 100
-            if not best or score > best.score then
-                best = { pet = pet, score = score }
+
+    local brawler = BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
+    local classKey = brawler and brawler.classKey or nil
+    if not classKey and BrawlerLibrary.ClassById then
+        classKey = BrawlerLibrary.ClassById[brawlerId]
+    end
+    return classKey
+end
+
+local function GetBrawlerRarityKey(brawlerId)
+    local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
+    return brawler and brawler.rarity or nil
+end
+
+local function GetBrawlerDisplayName(brawlerId)
+    local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
+    return brawler and brawler.name or tostring(brawlerId)
+end
+
+local function GetBrawlerRarityScore(brawlerId)
+    return BrawlerRarityScore[GetBrawlerRarityKey(brawlerId) or ""] or 0
+end
+
+local function GetMapRecommendedClasses(mapId)
+    local map = nil
+    if BattleConfig and BattleConfig.getMap then
+        local ok, result = pcall(function()
+            return BattleConfig.getMap(mapId)
+        end)
+        if ok and typeof(result) == "table" then
+            map = result
+        end
+    end
+    if not map and BattleConfig and typeof(BattleConfig.Maps) == "table" then
+        map = BattleConfig.Maps[mapId]
+    end
+    if map and typeof(map.recommendedClasses) == "table" then
+        return map.recommendedClasses
+    end
+    return {}
+end
+
+local function IsBrawlerRecommendedForCurrentMap(brawlerId)
+    local classKey = GetBrawlerClassKey(brawlerId)
+    if not classKey then
+        return false
+    end
+
+    for _, recommendedClass in ipairs(GetMapRecommendedClasses(LastBattleRoleMap or BattleMapChoice)) do
+        if classKey == recommendedClass then
+            return true
+        end
+    end
+    return false
+end
+
+local function IsBrawlerInBattleSlots(brawlerId, inventory)
+    if typeof(inventory) ~= "table" or typeof(inventory.selectedBattleSlots) ~= "table" then
+        return false
+    end
+
+    for _, slotId in ipairs(inventory.selectedBattleSlots) do
+        if slotId == brawlerId then
+            return true
+        end
+    end
+    return false
+end
+
+local function NormalizeInventorySnapshot(snapshot)
+    if typeof(snapshot) ~= "table" then
+        return snapshot
+    end
+
+    if BrawlerInventoryState and BrawlerInventoryState.createInventoryFromData then
+        local ok, normalized = pcall(function()
+            return BrawlerInventoryState.createInventoryFromData(snapshot)
+        end)
+        if ok and typeof(normalized) == "table" then
+            return normalized
+        end
+    end
+
+    return snapshot
+end
+
+local function GetBattleSlots()
+    local inv
+    local now = os.clock()
+    if InventorySnapshotCache and now - InventorySnapshotCacheTime <= INVENTORY_CACHE_SECONDS then
+        inv = InventorySnapshotCache
+    else
+        local ok, snapshot = SafeInvoke(GetInventorySnapshot)
+        if ok and typeof(snapshot) == "table" then
+            inv = NormalizeInventorySnapshot(snapshot)
+            InventorySnapshotCache = inv
+            InventorySnapshotCacheTime = now
+        end
+    end
+
+    local slots = { "shelly", false, false }
+
+    if typeof(inv) == "table" and typeof(inv.selectedBattleSlots) == "table" then
+        slots = inv.selectedBattleSlots
+    end
+
+    if BattleConfig and BattleConfig.sanitizeSelectedBrawlerSlots then
+        local sanitizedOk, sanitized = pcall(function()
+            return BattleConfig.sanitizeSelectedBrawlerSlots(slots, inv)
+        end)
+        if sanitizedOk and typeof(sanitized) == "table" then
+            return sanitized, inv
+        end
+    end
+
+    return slots, inv
+end
+
+local function GetBrawlerBaseScore(brawlerId, state)
+    local level = tonumber(state and state.level) or 1
+    local trophies = tonumber(state and state.trophies) or 0
+    local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
+    local rarityScore = 0
+
+    if brawler and brawler.rarity then
+        local rarity = tostring(brawler.rarity)
+        rarityScore = BrawlerRarityScore[rarity] or 0
+    end
+
+    return level * 100000 + trophies * 10 + rarityScore
+end
+
+local function GetUnlockedBrawlerCandidates(inventory, mapId)
+    local candidates = {}
+    if typeof(inventory) ~= "table" or typeof(inventory.byId) ~= "table" then
+        return candidates
+    end
+
+    for brawlerId, state in pairs(inventory.byId) do
+        if typeof(brawlerId) == "string" and typeof(state) == "table" and state.unlocked == true then
+            candidates[#candidates + 1] = {
+                id = brawlerId,
+                score = GetBrawlerBaseScore(brawlerId, state),
+                classKey = GetBrawlerClassKey(brawlerId),
+            }
+        end
+    end
+
+    table.sort(candidates, function(a, b)
+        return a.score > b.score
+    end)
+
+    local trimmed = {}
+    local included = {}
+    local perClassCount = {}
+
+    local function include(candidate)
+        if not candidate or included[candidate.id] then
+            return
+        end
+        included[candidate.id] = true
+        trimmed[#trimmed + 1] = candidate
+    end
+
+    for i = 1, math.min(#candidates, 14) do
+        include(candidates[i])
+    end
+
+    if not mapId then
+        return trimmed
+    end
+
+    local recommendedClasses = GetMapRecommendedClasses(mapId)
+    local recommendedSet = {}
+    for _, classKey in ipairs(recommendedClasses) do
+        if typeof(classKey) == "string" then
+            recommendedSet[classKey] = true
+        end
+    end
+
+    local selectedSet = {}
+    if typeof(inventory.selectedBattleSlots) == "table" then
+        for _, brawlerId in ipairs(inventory.selectedBattleSlots) do
+            if typeof(brawlerId) == "string" then
+                selectedSet[brawlerId] = true
             end
         end
     end
-    return best and best.pet or nil
+
+    for _, candidate in ipairs(candidates) do
+        if selectedSet[candidate.id] then
+            include(candidate)
+        end
+        if candidate.classKey and recommendedSet[candidate.classKey] then
+            local count = perClassCount[candidate.classKey] or 0
+            if count < 5 then
+                perClassCount[candidate.classKey] = count + 1
+                include(candidate)
+            end
+        end
+    end
+    return trimmed
 end
 
-local function HasAliveTarget(instance)
-    if not instance or not instance.Parent then
-        return false
+local function ScoreBattleSlots(mapId, slots, inventory)
+    local preview = GetMapPreview(mapId, slots, inventory)
+    if preview then
+        local matchedClasses = typeof(preview.matchedRecommendedClasses) == "table" and #preview.matchedRecommendedClasses or 0
+        local durationScore = math.max(0, 1000 - (tonumber(preview.durationSeconds) or 1000))
+        local score = (tonumber(preview.winChance) or 0) * 1000000
+            + matchedClasses * 100000
+            + (tonumber(preview.trophyReward) or 0) * 10
+            + durationScore
+        return score, preview
     end
-    local alive = instance:GetAttribute("Alive")
-    if alive == false then
-        return false
+
+    local score = 0
+    for _, slot in ipairs(slots) do
+        if typeof(slot) == "string" and inventory and inventory.byId then
+            score += GetBrawlerBaseScore(slot, inventory.byId[slot] or {})
+        end
     end
-    local hp = instance:GetAttribute("HP") or instance:GetAttribute("Health")
-    if type(hp) == "number" and hp <= 0 then
-        return false
-    end
-    return true
+    return score, nil
 end
 
-local function GetTargetPosition(instance)
-    if not instance then
-        return nil
+local function ChooseBestBattleSlotsForMap(mapId, inventory)
+    local candidates = GetUnlockedBrawlerCandidates(inventory, mapId)
+    if #candidates <= 0 then
+        return { "shelly", false, false }, nil
     end
-    if instance:IsA("Model") then
-        local part = instance.PrimaryPart or instance:FindFirstChildWhichIsA("BasePart", true)
-        return part and part.Position or nil
+
+    local bestSlots = nil
+    local bestScore = nil
+    local bestPreview = nil
+
+    local function consider(slots)
+        local padded = { slots[1] or false, slots[2] or false, slots[3] or false }
+        local score, preview = ScoreBattleSlots(mapId, padded, inventory)
+        if not bestScore or score > bestScore then
+            bestScore = score
+            bestSlots = padded
+            bestPreview = preview
+        end
     end
-    if instance:IsA("BasePart") then
-        return instance.Position
+
+    for i = 1, #candidates do
+        consider({ candidates[i].id })
+        for j = i + 1, #candidates do
+            consider({ candidates[i].id, candidates[j].id })
+            for k = j + 1, #candidates do
+                consider({ candidates[i].id, candidates[j].id, candidates[k].id })
+            end
+        end
     end
-    local part = instance:FindFirstChildWhichIsA("BasePart", true)
-    return part and part.Position or nil
+
+    return bestSlots or { candidates[1].id, false, false }, bestPreview
 end
 
-local function GetRoot()
-    local character = player.Character
-    return character and character:FindFirstChild("HumanoidRootPart") or nil
+local function ExtractMapIdsFromOffer(result)
+    if typeof(result) ~= "table" then
+        return {}
+    end
+
+    local battleState = typeof(result.battleState) == "table" and result.battleState or result
+    local offer = typeof(battleState.pendingMapOffer) == "table" and battleState.pendingMapOffer or result.pendingMapOffer
+
+    if typeof(offer) == "table" and typeof(offer.mapIds) == "table" then
+        return offer.mapIds
+    end
+
+    if typeof(result.mapIds) == "table" then
+        return result.mapIds
+    end
+
+    if typeof(result.maps) == "table" then
+        local ids = {}
+        for _, map in ipairs(result.maps) do
+            if typeof(map) == "string" then
+                ids[#ids + 1] = map
+            elseif typeof(map) == "table" and typeof(map.id or map.mapId) == "string" then
+                ids[#ids + 1] = map.id or map.mapId
+            end
+        end
+        return ids
+    end
+
+    return {}
 end
 
-local function GetDistanceToTarget(target)
-    local root = GetRoot()
-    local pos = GetTargetPosition(target)
-    if root and pos then
-        return (root.Position - pos).Magnitude
+local function GetMapConfig(mapId)
+    if BattleConfig and BattleConfig.getMap then
+        local ok, map = pcall(function()
+            return BattleConfig.getMap(mapId)
+        end)
+        if ok and typeof(map) == "table" then
+            return map
+        end
     end
-    return math.huge
-end
 
-local function AddTarget(list, target, source, priority)
-    if not HasAliveTarget(target) then
-        return
+    if BattleConfig and typeof(BattleConfig.Maps) == "table" and typeof(BattleConfig.Maps[mapId]) == "table" then
+        return BattleConfig.Maps[mapId]
     end
-    local pos = GetTargetPosition(target)
-    if not pos then
-        return
-    end
-    list[#list + 1] = {
-        target = target,
-        source = source,
-        distance = GetDistanceToTarget(target),
-        priority = priority or 0,
+
+    return {
+        id = mapId,
+        order = BattleMapOrder[mapId] or 0,
+        trophyReward = BattleMapOrder[mapId] or 0,
+        baseWinChance = 0,
     }
 end
 
-local function CollectMobTargets()
-    local targets = {}
-    for _, mob in ipairs(CollectionService:GetTagged("Mob")) do
-        AddTarget(targets, mob, "Mob", mob:GetAttribute("IsBoss") and 1000 or 0)
-    end
-    local folder = Workspace:FindFirstChild("Mobs")
-    if folder then
-        for _, mob in ipairs(folder:GetChildren()) do
-            AddTarget(targets, mob, "Mob", mob:GetAttribute("IsBoss") and 1000 or 0)
-        end
-    end
-    return targets
-end
-
-local function CollectResourceTargets()
-    local targets = {}
-    local seen = {}
-    if ResourceConfig and typeof(ResourceConfig.AllResources) == "table" then
-        for resourceId, cfg in pairs(ResourceConfig.AllResources) do
-            for _, node in ipairs(CollectionService:GetTagged(resourceId)) do
-                if not seen[node] then
-                    seen[node] = true
-                    AddTarget(targets, node, "Resource", cfg.isRare and 750 or 0)
-                end
-            end
-        end
-    end
-    for _, folderName in ipairs({ "Resources", "ResourceNodes", "MapResources" }) do
-        local folder = Workspace:FindFirstChild(folderName)
-        if folder then
-            for _, node in ipairs(folder:GetDescendants()) do
-                if (node:IsA("Model") or node:IsA("BasePart")) and not seen[node] then
-                    seen[node] = true
-                    AddTarget(targets, node, "Resource", 0)
-                end
-            end
-        end
-    end
-    return targets
-end
-
-local function ChooseTarget(mode)
-    local targets = {}
-    if mode == "Nearest Mob" then
-        targets = CollectMobTargets()
-    elseif mode == "Nearest Resource" then
-        targets = CollectResourceTargets()
-    elseif mode == "Boss/Rare First" then
-        for _, t in ipairs(CollectMobTargets()) do targets[#targets + 1] = t end
-        for _, t in ipairs(CollectResourceTargets()) do targets[#targets + 1] = t end
-    else
-        for _, t in ipairs(CollectMobTargets()) do targets[#targets + 1] = t end
-        for _, t in ipairs(CollectResourceTargets()) do targets[#targets + 1] = t end
-    end
-
-    table.sort(targets, function(a, b)
-        if a.priority == b.priority then
-            return a.distance < b.distance
-        end
-        return a.priority > b.priority
-    end)
-    return targets[1]
-end
-
-local function SetAllPetAction(action)
-    return SafeFire("PetSetAllAction", action)
-end
-
-local function TargetForPets(target)
-    if not target then
-        return false
-    end
-    return SafeFire("PetClickTarget", target)
-end
-
-local function TeleportNearTarget(target)
-    local root = GetRoot()
-    local pos = GetTargetPosition(target)
-    if not root or not pos then
-        return false
-    end
-    root.CFrame = CFrame.new(pos + Vector3.new(0, 4, 7), pos)
-    return true
-end
-
-local function CanAffordUpgrade(upgradeId)
-    if not UpgradeConfig or not UpgradeConfig.GetUpgrade or not UpgradeConfig.GetCost then
-        return true
-    end
-    local cfg = UpgradeConfig.GetUpgrade(upgradeId)
-    if not cfg then
-        return false
-    end
-    local level = tonumber(DataCache.Upgrades and DataCache.Upgrades[upgradeId]) or 0
-    if cfg.maxLevel and level >= cfg.maxLevel then
-        return false
-    end
-    return GetCurrency(UpgradeConfig.CurrencyId or "Silver") >= (tonumber(UpgradeConfig.GetCost(upgradeId, level)) or math.huge)
-end
-
-local function ChooseUpgrade(mode)
-    if not UpgradeConfig or typeof(UpgradeConfig.Upgrades) ~= "table" then
-        return nil
-    end
-    local best
-    for _, cfg in ipairs(UpgradeConfig.Upgrades) do
-        if cfg and cfg.id and CanAffordUpgrade(cfg.id) then
-            local level = tonumber(DataCache.Upgrades and DataCache.Upgrades[cfg.id]) or 0
-            local cost = tonumber(UpgradeConfig.GetCost and UpgradeConfig.GetCost(cfg.id, level)) or 1
-            local value = tonumber(cfg.bonusPerLevel) or 1
-            local score = value / math.max(cost, 1)
-            if mode == "Cheapest" then
-                score = -cost
-            elseif mode == "Combat First" then
-                score = (cfg.category == "Combat" and 1000000 or 0) + score
-            elseif mode == "Farm First" then
-                score = ((cfg.category == "Mining" or cfg.category == "Harvesting" or cfg.category == "Logging") and 1000000 or 0) + score
-            end
-            if not best or score > best.score then
-                best = { id = cfg.id, score = score }
-            end
-        end
-    end
-    return best and best.id or nil
-end
-
-local function BuyUpgrade(upgradeId)
-    if not upgradeId then
-        return false
-    end
-    return SafeFire("PurchaseUpgrade", upgradeId)
-end
-
-local function CanRebirth()
-    if not RebirthConfig then
-        return true
-    end
-    local rebirthCount = tonumber(DataCache.RebirthCount) or 0
-    if RebirthConfig.MaxRebirths and rebirthCount >= RebirthConfig.MaxRebirths then
-        return false
-    end
-    local tier = RebirthConfig.GetTier and RebirthConfig.GetTier(rebirthCount + 1)
-    if typeof(tier) ~= "table" then
-        return false
-    end
-    if typeof(tier.currencies) == "table" then
-        for _, req in ipairs(tier.currencies) do
-            if GetCurrency(req.currencyId) < (tonumber(req.amount) or 0) then
-                return false
-            end
-        end
-    end
-    if typeof(tier.items) == "table" then
-        for _, req in ipairs(tier.items) do
-            if GetInventoryItemCount(req.itemId) < (tonumber(req.amount) or 0) then
-                return false
-            end
-        end
-    end
-    if typeof(tier.pets) == "table" then
-        for _, req in ipairs(tier.pets) do
-            local met = false
-            for _, pet in pairs(PetDataCache.Owned or {}) do
-                if typeof(pet) == "table" and pet.petId == req.petId and (req.mutation == nil or pet.mutation == req.mutation) and GetPetLevel(pet) >= (tonumber(req.level) or 0) then
-                    met = true
-                    break
-                end
-            end
-            if not met then
-                return false
-            end
-        end
-    end
-    return true
-end
-
-local function ClaimDailyAvailable()
-    local claimed = DailyCache.claimed or {}
-    local totalPlaytime = tonumber(DailyCache.totalPlaytime) or 0
-    local maxTier = DailyRewardsConfig and DailyRewardsConfig.GetTierCount and DailyRewardsConfig.GetTierCount() or 12
-    local claimedCount = 0
-    for i = 1, maxTier do
-        if claimed[tostring(i)] then
-            claimedCount += 1
-        else
-            local tier = DailyRewardsConfig and DailyRewardsConfig.GetTier and DailyRewardsConfig.GetTier(i)
-            if not tier or totalPlaytime >= (tonumber(tier.timeRequired) or 0) then
-                SafeFire("ClaimDailyReward", i)
-                task.wait(0.1)
-            end
-        end
-    end
-    return claimedCount
-end
-
-local function AutoSpinOnce()
-    local spins = (tonumber(SpinCache.Spins) or 0) + (tonumber(SpinCache.FreeSpins) or 0)
-    if spins <= 0 then
-        return false
-    end
-    local ok, result = SafeInvoke("SpinWheel")
-    return ok and result ~= nil
-end
-
-local function RollFountainOnce()
-    local cost = tonumber(WishingFountainConfig and WishingFountainConfig.CostAmount) or 0
-    if cost > 0 and GetCurrency("Silver") < cost then
-        return false
-    end
-    local ok, result = SafeInvoke("WishingFountainRoll")
-    return ok and (typeof(result) ~= "table" or result.ok ~= false)
-end
-
-local function OpenInventoryType(itemType, remoteName, amountMode)
-    local opened = 0
-    for _, entry in ipairs(GetInventoryEntriesByType(itemType)) do
-        local amount = amountMode == "All" and entry.quantity or 1
-        if amount > 0 then
-            SafeFire(remoteName, entry.id, amount, entry.untradable)
-            opened += amount
-            task.wait(0.12)
-        end
-    end
-    return opened
-end
-
-local function UseAllPotions()
-    local used = 0
-    for _, entry in ipairs(GetInventoryEntriesByType("Potion")) do
-        SafeFire("UsePotion", entry.id, entry.untradable, entry.quantity)
-        used += entry.quantity
-        task.wait(0.12)
-    end
-    return used
-end
-
-local function CanCraftRecipe(recipe)
-    if typeof(recipe) ~= "table" or typeof(recipe.inputs) ~= "table" then
-        return false
-    end
-    for _, input in ipairs(recipe.inputs) do
-        if input.type == "currency" then
-            if GetCurrency(input.id) < (tonumber(input.amount) or 0) then
-                return false
-            end
-        elseif input.type == "item" then
-            if GetInventoryItemCount(input.id) < (tonumber(input.amount) or 0) then
-                return false
-            end
-        end
-    end
-    return true
-end
-
-local function ChooseCraftRecipe(mode, manualRecipe)
-    if manualRecipe and manualRecipe ~= "" and CraftingConfig and CraftingConfig.GetRecipe then
-        return CraftingConfig.GetRecipe(manualRecipe) and manualRecipe or nil
-    end
-    if not CraftingConfig or typeof(CraftingConfig.RecipeOrder) ~= "table" or not CraftingConfig.GetRecipe then
-        return nil
-    end
-    if mode == "First Affordable" then
-        for _, recipeId in ipairs(CraftingConfig.RecipeOrder) do
-            local recipe = CraftingConfig.GetRecipe(recipeId)
-            if CanCraftRecipe(recipe) then
-                return recipeId
-            end
+function GetMapPreview(mapId, slots, inventory)
+    if BattleConfig and BattleConfig.calculatePreview then
+        local ok, preview = pcall(function()
+            return BattleConfig.calculatePreview(mapId, slots, inventory)
+        end)
+        if ok and typeof(preview) == "table" then
+            return preview
         end
     end
     return nil
 end
 
-local function ClaimReadyCrafts()
-    local claimed = 0
-    if typeof(CraftingCache) ~= "table" then
-        return 0
+local function IsBetterBattleMap(candidate, current, mode)
+    if not current then
+        return true
     end
-    local slots = CraftingCache.slots or CraftingCache.Slots or CraftingCache
-    if typeof(slots) ~= "table" then
-        return 0
+
+    if mode == "Best Reward" then
+        if candidate.trophyReward == current.trophyReward then
+            if candidate.winChance == current.winChance then
+                return candidate.order > current.order
+            end
+            return candidate.winChance > current.winChance
+        end
+        return candidate.trophyReward > current.trophyReward
     end
-    for slotIndex, slot in pairs(slots) do
-        if typeof(slot) == "table" then
-            local ready = slot.ready == true or slot.isReady == true or (tonumber(slot.endTime) and tonumber(slot.endTime) <= os.time())
-            if ready then
-                SafeInvoke("ClaimCraft", tonumber(slotIndex) or slotIndex)
-                claimed += 1
-                task.wait(0.1)
+
+    if candidate.winChance == current.winChance then
+        if candidate.trophyReward == current.trophyReward then
+            return candidate.order > current.order
+        end
+        return candidate.trophyReward > current.trophyReward
+    end
+    return candidate.winChance > current.winChance
+end
+
+local function BuildBattleMapCandidate(mapId, slots, inventory)
+    local map = GetMapConfig(mapId)
+    local preview = GetMapPreview(mapId, slots, inventory)
+    return {
+        mapId = mapId,
+        order = tonumber(map and map.order) or BattleMapOrder[mapId] or 0,
+        trophyReward = tonumber(preview and preview.trophyReward) or tonumber(map and map.trophyReward) or 0,
+        winChance = tonumber(preview and preview.winChance) or tonumber(map and map.baseWinChance) or 0,
+        preview = preview,
+    }
+end
+
+local function ChooseBattleMap(mapIds, slots, inventory, mode, fallbackMap)
+    if mode == "Manual Dropdown" then
+        return fallbackMap
+    end
+
+    local best = nil
+    for _, mapId in ipairs(mapIds or {}) do
+        if typeof(mapId) == "string" then
+            local candidate = BuildBattleMapCandidate(mapId, slots, inventory)
+            if IsBetterBattleMap(candidate, best, mode) then
+                best = candidate
             end
         end
     end
-    return claimed
+
+    return (best and best.mapId) or fallbackMap
 end
 
-local function MerchantSellAllOffers()
-    local sold = 0
-    if not MerchantConfig or typeof(MerchantConfig.Offers) ~= "table" then
-        return 0
-    end
-    for _, offer in ipairs(MerchantConfig.Offers) do
-        if offer.itemId then
-            local count = GetInventoryItemCount(offer.itemId)
-            if count > 0 then
-                SafeFire("MerchantSell", offer.itemId, count)
-                sold += count
-                task.wait(0.15)
-            end
+local function ChooseBattleMapAndSlots(mapIds, slots, inventory, mode, fallbackMap, autoEquipBest)
+    if mode == "Manual Dropdown" then
+        local manualMap = fallbackMap
+        if autoEquipBest and typeof(manualMap) == "string" then
+            local bestSlots = ChooseBestBattleSlotsForMap(manualMap, inventory)
+            return manualMap, bestSlots
         end
+        return manualMap, slots
     end
-    return sold
-end
 
-local function GetZoneOptions()
-    local options = {}
-    if ZoneConfig and typeof(ZoneConfig.Zones) == "table" then
-        for index, zone in ipairs(ZoneConfig.Zones) do
-            options[#options + 1] = zone.Name or zone.Map or tostring(index)
-        end
-    end
-    if #options <= 0 then
-        options = { "Spawn", "Grasslands", "Desert", "Arctic", "Volcano", "Crystal", "Slime" }
-    end
-    return options
-end
-
-local function FindZoneIdByName(name)
-    if ZoneConfig and typeof(ZoneConfig.Zones) == "table" then
-        for index, zone in ipairs(ZoneConfig.Zones) do
-            if zone.Name == name or zone.Map == name or tostring(index) == tostring(name) then
-                return index, zone
-            end
-        end
-    end
-    return name, nil
-end
-
--- ============================================================
---  FARM TAB
--- ============================================================
-do
-FarmTab:CreateSection("Target Farm")
-FarmStatusLabel = FarmTab:CreateLabel(LastFarmStatusText)
-FarmTargetLabel = FarmTab:CreateLabel(LastTargetText)
-
-local FarmMode = "Best Available"
-local FarmPetAction = "Auto"
-local FarmDelay = 0.35
-local MoveToTarget = false
-local AutoFarm = false
-
-FarmTab:CreateDropdown({
-    Name = "Target Mode",
-    Options = { "Best Available", "Boss/Rare First", "Nearest Mob", "Nearest Resource" },
-    CurrentOption = { "Best Available" },
-    MultipleOptions = false,
-    Flag = "PetsAdventureFarmMode",
-    Callback = function(v)
-        FarmMode = GetDropdownChoice(v, FarmMode)
-    end,
-})
-
-FarmTab:CreateDropdown({
-    Name = "Pet Action",
-    Options = { "Auto", "Farm", "Fight", "Follow" },
-    CurrentOption = { "Auto" },
-    MultipleOptions = false,
-    Flag = "PetsAdventureFarmPetAction",
-    Callback = function(v)
-        FarmPetAction = GetDropdownChoice(v, FarmPetAction)
-    end,
-})
-
-FarmTab:CreateToggle({
-    Name = "Move Character Near Target",
-    CurrentValue = false,
-    Flag = "PetsAdventureMoveToTarget",
-    Callback = function(v)
-        MoveToTarget = v
-    end,
-})
-
-FarmTab:CreateInput({
-    Name = "Target Delay (seconds)",
-    PlaceholderText = "Default: 0.35",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(v)
-        FarmDelay = math.max(tonumber(v) or 0.35, 0.1)
-    end,
-})
-
-FarmTab:CreateButton({
-    Name = "Target Best Once",
-    Callback = function()
-        local chosen = ChooseTarget(FarmMode)
-        if chosen then
-            SetAllPetAction(FarmPetAction)
-            if MoveToTarget then
-                TeleportNearTarget(chosen.target)
-            end
-            TargetForPets(chosen.target)
-            LastTargetText = "Target: " .. chosen.source .. " | " .. chosen.target.Name
-            SetRayfieldLabel(FarmTargetLabel, LastTargetText)
-            SetStatus(FarmStatusLabel, "Status", "Targeted once")
-        else
-            SetStatus(FarmStatusLabel, "Status", "No target found")
-        end
-    end,
-})
-
-FarmTab:CreateToggle({
-    Name = "Auto Target Farm",
-    CurrentValue = false,
-    Flag = "PetsAdventureAutoTargetFarm",
-    Callback = function(v)
-        AutoFarm = v
-        if AutoFarm then
-            StartManagedLoop("AutoTargetFarm", function() return AutoFarm end, function()
-                local chosen = ChooseTarget(FarmMode)
-                if not chosen then
-                    SetStatus(FarmStatusLabel, "Status", "No target found")
-                    LastTargetText = "Target: -"
-                    SetRayfieldLabel(FarmTargetLabel, LastTargetText)
-                    return FarmDelay
+    if autoEquipBest then
+        local best = nil
+        local bestSlots = nil
+        for _, mapId in ipairs(mapIds or {}) do
+            if typeof(mapId) == "string" then
+                local candidateSlots = ChooseBestBattleSlotsForMap(mapId, inventory)
+                local candidate = BuildBattleMapCandidate(mapId, candidateSlots, inventory)
+                if IsBetterBattleMap(candidate, best, mode) then
+                    best = candidate
+                    bestSlots = candidateSlots
                 end
-                SetAllPetAction(FarmPetAction)
-                if MoveToTarget then
-                    TeleportNearTarget(chosen.target)
+            end
+        end
+
+        if best then
+            return best.mapId, bestSlots
+        end
+    end
+
+    local chosenMap = ChooseBattleMap(mapIds, slots, inventory, mode, fallbackMap)
+    if autoEquipBest and typeof(chosenMap) == "string" then
+        return chosenMap, ChooseBestBattleSlotsForMap(chosenMap, inventory)
+    end
+    return chosenMap, slots
+end
+
+local function RequestAndStartSmartBattle(mode, fallbackMap)
+    local existingMapIds = {}
+    local stateOk, state = SafeInvoke(GetBattleState)
+    if stateOk and typeof(state) == "table" then
+        if typeof(state.completedResult) == "table" then
+            SetBattleResult(state.completedResult)
+            SetBattleStatus("Completed - collecting")
+            local ackOk, ackResult = SafeInvoke(AcknowledgeBattleResult, { deferBoxRewards = true })
+            task.wait(0.15)
+            if ackOk and OpenAllDeferredBattleRewards then
+                OpenAllDeferredBattleRewards(typeof(ackResult) == "table" and (ackResult.battleState or ackResult) or nil)
+            end
+            return true, 1
+        end
+
+        if typeof(state.activeBattle) == "table" then
+            local mapId = tostring(state.activeBattle.mapId or "?")
+            local endTime = tonumber(state.activeBattle.endTime)
+            if endTime then
+                SetBattleStatus("Active: " .. mapId .. " | ends " .. tostring(math.max(0, math.floor(endTime - os.time()))) .. "s")
+            else
+                SetBattleStatus("Active: " .. mapId)
+            end
+            return true, 3
+        end
+
+        existingMapIds = ExtractMapIdsFromOffer(state)
+    end
+
+    local slots, inventory = GetBattleSlots()
+    local mapsOk, mapsResult = SafeInvoke(RequestBattleMaps)
+    if not mapsOk or typeof(mapsResult) ~= "table" then
+        return false, nil
+    end
+
+    local mapIds = ExtractMapIdsFromOffer(mapsResult)
+    if #mapIds <= 0 then
+        mapIds = existingMapIds
+    end
+
+    if mode ~= "Manual Dropdown" and #mapIds <= 0 then
+        return false, nil
+    end
+
+    local chosenMap, plannedSlots = ChooseBattleMapAndSlots(mapIds, slots, inventory, mode, fallbackMap, true)
+    if typeof(chosenMap) ~= "string" then
+        SetBattleStatus("No valid map")
+        return false, nil
+    end
+    LastBattleRoleMap = chosenMap
+
+    local bestSlots = plannedSlots or ChooseBestBattleSlotsForMap(chosenMap, inventory)
+    if typeof(bestSlots) == "table" then
+        slots = bestSlots
+        if SafeFire(SetSelectedBattleSlots, slots) then
+            InvalidateInventorySnapshot()
+        end
+        task.wait(0.15)
+    end
+
+    SetBattleOffer(mapIds, chosenMap)
+    SetBattleSlots(slots)
+    SetBattleStatus("Starting: " .. chosenMap)
+    local startOk = SafeInvoke(StartBattle, chosenMap, slots)
+    if startOk then
+        SetBattleStatus("Started: " .. chosenMap)
+    else
+        SetBattleStatus("Start failed: " .. chosenMap)
+    end
+    return startOk, chosenMap
+end
+
+local function RefreshBattleStatus()
+    local stateOk, state = SafeInvoke(GetBattleState)
+    if not stateOk or typeof(state) ~= "table" then
+        SetBattleStatus("Refresh failed")
+        return nil
+    end
+
+    if typeof(state.completedResult) == "table" then
+        SetBattleResult(state.completedResult)
+        SetBattleStatus("Completed - ready to collect")
+        return state
+    end
+
+    if typeof(state.activeBattle) == "table" then
+        local mapId = tostring(state.activeBattle.mapId or "?")
+        local endTime = tonumber(state.activeBattle.endTime)
+        if endTime then
+            SetBattleStatus("Active: " .. mapId .. " | ends " .. tostring(math.max(0, math.floor(endTime - os.time()))) .. "s")
+        else
+            SetBattleStatus("Active: " .. mapId)
+        end
+        return state
+    end
+
+    SetBattleStatus("Idle")
+    SetBattleOffer(ExtractMapIdsFromOffer(state), nil)
+    return state
+end
+
+local function GetDeferredBattleRewardsFromState(state)
+    if typeof(state) ~= "table" then
+        return nil
+    end
+    if typeof(state.deferredBattleRewards) == "table" then
+        return state.deferredBattleRewards
+    end
+    if typeof(state.battleState) == "table" and typeof(state.battleState.deferredBattleRewards) == "table" then
+        return state.battleState.deferredBattleRewards
+    end
+    return nil
+end
+
+local function GetDeferredQueueCount(queue)
+    local count = 0
+    if typeof(queue) ~= "table" then
+        return 0
+    end
+    for _, entry in ipairs(queue) do
+        if typeof(entry) == "table" then
+            count += math.max(1, math.floor(tonumber(entry.count) or 1))
+        end
+    end
+    return count
+end
+
+local function CountDeferredBattleRewards(deferredRewards)
+    local count = 0
+    if typeof(deferredRewards) ~= "table" then
+        return 0
+    end
+    for _, kind in ipairs({ "box", "drop", "angelicDemonicDrop" }) do
+        count += GetDeferredQueueCount(deferredRewards[kind])
+    end
+    return count
+end
+
+OpenAllDeferredBattleRewards = function(state)
+    local deferredRewards = GetDeferredBattleRewardsFromState(state)
+    if not deferredRewards then
+        local stateOk, latestState = SafeInvoke(GetBattleState)
+        if stateOk then
+            deferredRewards = GetDeferredBattleRewardsFromState(latestState)
+        end
+    end
+
+    if CountDeferredBattleRewards(deferredRewards) <= 0 then
+        return false, 0
+    end
+
+    local opened = 0
+    for _, kind in ipairs({ "box", "drop", "angelicDemonicDrop" }) do
+        local queue = deferredRewards[kind]
+        if GetDeferredQueueCount(queue) > 0 then
+            if OpenDeferredBattleRewards then
+                for _ = 1, 100 do
+                    local ok, result = SafeInvoke(OpenDeferredBattleRewards, kind)
+                    if not ok or typeof(result) ~= "table" or result.ok ~= true then
+                        break
+                    end
+                    opened += 1
+                    if result.hasMore ~= true then
+                        break
+                    end
+                    task.wait()
                 end
-                TargetForPets(chosen.target)
-                LastTargetText = "Target: " .. chosen.source .. " | " .. chosen.target.Name .. " | " .. math.floor(chosen.distance) .. " studs"
-                SetRayfieldLabel(FarmTargetLabel, LastTargetText)
-                SetStatus(FarmStatusLabel, "Status", "Farming")
-                return FarmDelay
-            end, 1)
-        else
-            SetStatus(FarmStatusLabel, "Status", "Idle")
+            elseif OpenDeferredBattleReward then
+                for _, entry in ipairs(queue) do
+                    local pendingId = typeof(entry) == "table" and tostring(entry.id or "") or ""
+                    local count = typeof(entry) == "table" and math.max(1, math.floor(tonumber(entry.count) or 1)) or 1
+                    if pendingId ~= "" then
+                        for _ = 1, count do
+                            local ok, result = SafeInvoke(OpenDeferredBattleReward, pendingId)
+                            if not ok or (typeof(result) == "table" and result.ok == false) then
+                                break
+                            end
+                            opened += 1
+                            task.wait()
+                        end
+                    end
+                end
+            end
         end
-    end,
-})
+    end
 
-FarmTab:CreateSection("Combat Utility")
-FarmTab:CreateButton({
-    Name = "Clear Pet Target",
-    Callback = function()
-        SafeFire("PetClickTarget", nil)
-        SetStatus(FarmStatusLabel, "Status", "Cleared pet target")
-    end,
-})
-
-FarmTab:CreateButton({
-    Name = "Pet Visual Resync",
-    Callback = function()
-        SafeFire("PetVisualSync")
-        SafeFire("PvpSync")
-        SetStatus(FarmStatusLabel, "Status", "Pet sync requested")
-    end,
-})
+    if opened > 0 then
+        InvalidateInventorySnapshot()
+        SetBattleStatus("Opened deferred battle rewards: " .. tostring(opened))
+        return true, opened
+    end
+    return false, 0
 end
 
--- ============================================================
---  PETS TAB
--- ============================================================
-do
-PetsTab:CreateSection("Pet Actions")
+local function GetPlayerNumberValue(name)
+    local value = NumberValueCache[name]
+    if not value or value.Parent ~= player then
+        value = player:FindFirstChild(name)
+        NumberValueCache[name] = value
+    end
 
-local AutoAction = false
-local AutoActionChoice = "Auto"
-local AutoRevive = false
-local ReviveCurrency = "Gold"
-
-PetsTab:CreateButton({
-    Name = "Equip Best Pets",
-    Callback = function()
-        SafeFire("PetEquipBest")
-        task.wait(0.2)
-        SafeFire("PetRequestSync")
-        SafeNotify({ Title = "Pets", Content = "Equip best requested.", Duration = 2 })
-    end,
-})
-
-PetsTab:CreateDropdown({
-    Name = "All Pet Action",
-    Options = { "Auto", "Farm", "Fight", "Follow" },
-    CurrentOption = { "Auto" },
-    MultipleOptions = false,
-    Flag = "PetsAdventurePetAction",
-    Callback = function(v)
-        AutoActionChoice = GetDropdownChoice(v, AutoActionChoice)
-        SetAllPetAction(AutoActionChoice)
-    end,
-})
-
-PetsTab:CreateToggle({
-    Name = "Keep Pet Action Applied",
-    CurrentValue = false,
-    Flag = "PetsAdventureKeepPetAction",
-    Callback = function(v)
-        AutoAction = v
-        if AutoAction then
-            StartManagedLoop("KeepPetAction", function() return AutoAction end, function()
-                SetAllPetAction(AutoActionChoice)
-                return 5
-            end, 1)
-        end
-    end,
-})
-
-PetsTab:CreateButton({
-    Name = "Deposit Collection Pets",
-    Callback = function()
-        SafeFire("CollectionDepositAll")
-        SafeFire("CollectionSync")
-        SafeNotify({ Title = "Collection", Content = "Deposit all requested.", Duration = 2 })
-    end,
-})
-
-PetsTab:CreateDropdown({
-    Name = "Revive Currency",
-    Options = { "Gold", "Diamonds" },
-    CurrentOption = { "Gold" },
-    MultipleOptions = false,
-    Flag = "PetsAdventureReviveCurrency",
-    Callback = function(v)
-        ReviveCurrency = GetDropdownChoice(v, ReviveCurrency)
-    end,
-})
-
-PetsTab:CreateButton({
-    Name = "Revive All Pets",
-    Callback = function()
-        SafeFire("PetRevive", "all", ReviveCurrency)
-        SafeFire("PetRequestSync")
-    end,
-})
-
-PetsTab:CreateToggle({
-    Name = "Auto Revive All Pets",
-    CurrentValue = false,
-    Flag = "PetsAdventureAutoRevive",
-    Callback = function(v)
-        AutoRevive = v
-        if AutoRevive then
-            StartManagedLoop("AutoRevivePets", function() return AutoRevive end, function()
-                SafeFire("PetRevive", "all", ReviveCurrency)
-                return 15
-            end, 3)
-        end
-    end,
-})
+    if value and (value:IsA("NumberValue") or value:IsA("IntValue")) then
+        return tonumber(value.Value) or 0
+    end
+    return 0
 end
 
--- ============================================================
---  UPGRADES TAB
--- ============================================================
-do
-UpgradeTab:CreateSection("Auto Upgrades")
-UpgradeStatusLabel = UpgradeTab:CreateLabel("Status: Idle")
+local function GetCoins()
+    return GetPlayerNumberValue("Coins")
+end
 
-local UpgradeMode = "Best Value"
-local UpgradeDelay = 0.25
-local AutoUpgrade = false
-local AutoRebirth = false
-local RebirthDelay = 5
-local AutoInnerRoll = false
-local InnerRollCurrency = "Rune"
+local function GetPowerPoints()
+    return GetPlayerNumberValue("PowerPoints")
+end
 
-UpgradeTab:CreateDropdown({
-    Name = "Upgrade Mode",
-    Options = { "Best Value", "Cheapest", "Combat First", "Farm First" },
-    CurrentOption = { "Best Value" },
-    MultipleOptions = false,
-    Flag = "PetsAdventureUpgradeMode",
-    Callback = function(v)
-        UpgradeMode = GetDropdownChoice(v, UpgradeMode)
-    end,
-})
+local function GetRebirthCount()
+    return GetPlayerNumberValue("Rebirth")
+end
 
-UpgradeTab:CreateInput({
-    Name = "Upgrade Delay (seconds)",
-    PlaceholderText = "Default: 0.25",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(v)
-        UpgradeDelay = math.max(tonumber(v) or 0.25, 0.1)
-    end,
-})
+local BrawlerUpgradeTemporaryBlocks = {}
 
-UpgradeTab:CreateButton({
-    Name = "Buy Best Upgrade Once",
-    Callback = function()
-        local upgradeId = ChooseUpgrade(UpgradeMode)
-        if upgradeId then
-            BuyUpgrade(upgradeId)
-            SetStatus(UpgradeStatusLabel, "Status", "Bought " .. upgradeId)
-        else
-            SetStatus(UpgradeStatusLabel, "Status", "No affordable upgrade")
+local function GetBrawlerUpgradeResourceSignature()
+    return tostring(GetCoins()) .. "|" .. tostring(GetPowerPoints())
+end
+
+local function ClearBrawlerUpgradeTemporaryBlock(brawlerId)
+    if typeof(brawlerId) == "string" then
+        BrawlerUpgradeTemporaryBlocks[brawlerId] = nil
+    end
+end
+
+local function SetBrawlerUpgradeTemporaryBlock(brawlerId, reason)
+    if typeof(brawlerId) ~= "string" or brawlerId == "" then
+        return
+    end
+
+    BrawlerUpgradeTemporaryBlocks[brawlerId] = {
+        reason = tostring(reason or "server rejected upgrade"),
+        resourceSignature = GetBrawlerUpgradeResourceSignature(),
+        expiresAt = os.clock() + 30,
+    }
+end
+
+local function GetBrawlerUpgradeTemporaryBlockReason(brawlerId)
+    local block = BrawlerUpgradeTemporaryBlocks[brawlerId]
+    if typeof(block) ~= "table" then
+        return nil
+    end
+
+    if os.clock() >= (tonumber(block.expiresAt) or 0) then
+        BrawlerUpgradeTemporaryBlocks[brawlerId] = nil
+        return nil
+    end
+
+    if block.resourceSignature ~= GetBrawlerUpgradeResourceSignature() then
+        BrawlerUpgradeTemporaryBlocks[brawlerId] = nil
+        return nil
+    end
+
+    return block.reason or "server rejected upgrade"
+end
+
+local function GetUpgradeSnapshot()
+    local now = os.clock()
+    if UpgradeSnapshotCache and now - UpgradeSnapshotCacheTime <= UPGRADE_CACHE_SECONDS then
+        return UpgradeSnapshotCache
+    end
+
+    local ok, state = SafeInvoke(GetUpgradeState)
+    if ok and typeof(state) == "table" then
+        if UpgradesConfig and UpgradesConfig.buildSnapshot then
+            local buildOk, snapshot = pcall(function()
+                return UpgradesConfig.buildSnapshot(state.levels, state.groupUnlocked, {
+                    Rebirth = state.rebirthCount or GetRebirthCount(),
+                }, state.generator)
+            end)
+            if buildOk and typeof(snapshot) == "table" then
+                UpgradeSnapshotCache = snapshot
+                UpgradeSnapshotCacheTime = now
+                return snapshot
+            end
         end
-    end,
-})
+        UpgradeSnapshotCache = state
+        UpgradeSnapshotCacheTime = now
+        return state
+    end
 
-UpgradeTab:CreateToggle({
-    Name = "Auto Buy Upgrades",
-    CurrentValue = false,
-    Flag = "PetsAdventureAutoUpgrade",
-    Callback = function(v)
-        AutoUpgrade = v
-        if AutoUpgrade then
-            StartManagedLoop("PetsAutoUpgrade", function() return AutoUpgrade end, function()
-                local upgradeId = ChooseUpgrade(UpgradeMode)
-                if upgradeId then
-                    BuyUpgrade(upgradeId)
-                    SetStatus(UpgradeStatusLabel, "Status", "Buying " .. upgradeId)
+    if UpgradesConfig and UpgradesConfig.buildSnapshot then
+        local fallbackOk, snapshot = pcall(function()
+            return UpgradesConfig.buildSnapshot(nil, false, {
+                Rebirth = GetRebirthCount(),
+            })
+        end)
+        if fallbackOk and typeof(snapshot) == "table" then
+            UpgradeSnapshotCache = snapshot
+            UpgradeSnapshotCacheTime = now
+            return snapshot
+        end
+    end
+
+    local fallback = {
+        levels = {
+            ClickPower = 0,
+            CoinGenerator = 0,
+            AutoClicker = 1,
+        },
+        rebirthCount = GetRebirthCount(),
+    }
+    UpgradeSnapshotCache = fallback
+    UpgradeSnapshotCacheTime = now
+    return fallback
+end
+
+local function GetUpgradeLevel(snapshot, upgradeId)
+    if typeof(snapshot) == "table" and typeof(snapshot.levels) == "table" then
+        return tonumber(snapshot.levels[upgradeId]) or 0
+    end
+    return 0
+end
+
+local function CanAffordUpgrade(upgradeId, buyMode, snapshot)
+    if not UpgradesConfig then
+        return true
+    end
+
+    snapshot = snapshot or GetUpgradeSnapshot()
+    local rebirthCount = tonumber(snapshot.rebirthCount) or GetRebirthCount()
+    local level = GetUpgradeLevel(snapshot, upgradeId)
+    local coins = GetCoins()
+
+    if UpgradesConfig.getMaxLevel and level >= UpgradesConfig.getMaxLevel(upgradeId, rebirthCount) then
+        return false
+    end
+
+    if buyMode == "max" and UpgradesConfig.getAffordableCount then
+        local ok, count = pcall(function()
+            return UpgradesConfig.getAffordableCount(upgradeId, level, coins, rebirthCount)
+        end)
+        count = tonumber(count) or 0
+        return ok and count > 0
+    end
+
+    if UpgradesConfig.getPriceForLevel then
+        local ok, price = pcall(function()
+            return UpgradesConfig.getPriceForLevel(upgradeId, level, rebirthCount)
+        end)
+        price = tonumber(price)
+        return ok and price ~= nil and coins >= price
+    end
+
+    return true
+end
+
+local function SmartPurchaseUpgrade(upgradeId, buyMode, snapshot)
+    if CanAffordUpgrade(upgradeId, buyMode, snapshot) then
+        local ok, result = SafeInvoke(PurchaseUpgrade, upgradeId, buyMode)
+        if ok then
+            InvalidateUpgradeSnapshot()
+        end
+        return ok, result
+    end
+    return false, nil
+end
+
+local function GetUpgradeCandidate(upgradeId, snapshot)
+    if not UpgradesConfig or not UpgradesConfig.getPriceForLevel then
+        return nil
+    end
+
+    local rebirthCount = tonumber(snapshot.rebirthCount) or GetRebirthCount()
+    local level = GetUpgradeLevel(snapshot, upgradeId)
+    local okPrice, price = pcall(function()
+        return UpgradesConfig.getPriceForLevel(upgradeId, level, rebirthCount)
+    end)
+    price = okPrice and tonumber(price) or nil
+    if not price or price > GetCoins() then
+        return nil
+    end
+
+    local valueGain = 1
+    if UpgradesConfig.getValueAtLevel then
+        local okCurrent, currentValue = pcall(function()
+            return UpgradesConfig.getValueAtLevel(upgradeId, level)
+        end)
+        local okNext, nextValue = pcall(function()
+            return UpgradesConfig.getValueAtLevel(upgradeId, level + 1)
+        end)
+        if okCurrent and okNext then
+            valueGain = math.max(1, (tonumber(nextValue) or 0) - (tonumber(currentValue) or 0))
+        end
+    end
+
+    return {
+        id = upgradeId,
+        price = price,
+        value = valueGain / math.max(price, 1),
+    }
+end
+
+local function ChooseSmartUpgrade(mode, snapshot)
+    if mode == "Fixed Order" then
+        for _, entry in ipairs(UpgradeList) do
+            if CanAffordUpgrade(entry[1], "single", snapshot) then
+                return entry[1]
+            end
+        end
+        return nil
+    end
+
+    local best = nil
+    for _, entry in ipairs(UpgradeList) do
+        local candidate = GetUpgradeCandidate(entry[1], snapshot)
+        if candidate then
+            if not best then
+                best = candidate
+            elseif mode == "Cheapest" and candidate.price < best.price then
+                best = candidate
+            elseif mode == "Best Value" and candidate.value > best.value then
+                best = candidate
+            end
+        end
+    end
+
+    return best and best.id or nil
+end
+
+local function CanRebirth()
+    if not UpgradesConfig or not UpgradesConfig.getRebirthCost then
+        return true
+    end
+
+    local ok, cost = pcall(function()
+        return UpgradesConfig.getRebirthCost(GetRebirthCount())
+    end)
+    cost = tonumber(cost)
+    return ok and cost ~= nil and GetCoins() >= cost
+end
+
+local function SmartPurchaseRebirth()
+    if CanRebirth() then
+        local ok, result = SafeInvoke(PurchaseRebirth)
+        if ok then
+            InvalidateUpgradeSnapshot()
+        end
+        return ok, result
+    end
+    return false, nil
+end
+
+local function GetBrawlerUpgradeCost(brawlerId, state)
+    if not BrawlerProgressionConfig or not BrawlerProgressionConfig.getUpgradeCostsForLevel then
+        return nil
+    end
+
+    local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
+    local rarity = brawler and brawler.rarity or nil
+    local ok, costs = pcall(function()
+        return BrawlerProgressionConfig.getUpgradeCostsForLevel(state and state.level or 1, rarity)
+    end)
+    if ok and typeof(costs) == "table" then
+        return {
+            coins = math.max(0, math.floor(tonumber(costs.coins) or 0)),
+            powerPoints = math.max(0, math.floor(tonumber(costs.powerPoints) or 0)),
+        }
+    end
+    return nil
+end
+
+local function GetBrawlerUpgradeDebugText(brawlerId, state)
+    local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
+    local level = math.max(1, math.floor(tonumber(state and state.level) or 1))
+    local rarity = brawler and brawler.rarity or "?"
+    local costs = GetBrawlerUpgradeCost(brawlerId, state)
+    local coins = GetCoins()
+    local powerPoints = GetPowerPoints()
+    local classKey = GetBrawlerClassKey(brawlerId) or "-"
+    local selectedText = IsBrawlerInBattleSlots(brawlerId, ({ GetBattleSlots() })[2]) and "yes" or "no"
+    local roleText = IsBrawlerRecommendedForCurrentMap(brawlerId) and "yes" or "no"
+
+    if costs then
+        return string.format(
+            "%s (%s) id=%s rarity=%s class=%s level=%d cost=%d coins/%d pp balance=%d coins/%d pp selected=%s roleMatch=%s",
+            GetBrawlerDisplayName(brawlerId),
+            tostring(brawlerId),
+            tostring(brawlerId),
+            tostring(rarity),
+            tostring(classKey),
+            level,
+            costs.coins,
+            costs.powerPoints,
+            coins,
+            powerPoints,
+            selectedText,
+            roleText
+        )
+    end
+
+    return string.format(
+        "%s (%s) id=%s rarity=%s class=%s level=%d cost=max/unknown balance=%d coins/%d pp selected=%s roleMatch=%s",
+        GetBrawlerDisplayName(brawlerId),
+        tostring(brawlerId),
+        tostring(brawlerId),
+        tostring(rarity),
+        tostring(classKey),
+        level,
+        coins,
+        powerPoints,
+        selectedText,
+        roleText
+    )
+end
+
+local function CanUpgradeBrawler(brawlerId, state, targetLevel)
+    if not PurchaseBrawlerUpgrade or typeof(state) ~= "table" or state.unlocked ~= true then
+        return false
+    end
+
+    local maxLevel = tonumber(BrawlerProgressionConfig and BrawlerProgressionConfig.MaxLevel) or 11
+    local level = math.max(1, math.floor(tonumber(state.level) or 1))
+    local wantedLevel = math.clamp(math.floor(tonumber(targetLevel) or maxLevel), 1, maxLevel)
+    if level >= maxLevel or level >= wantedLevel then
+        return false
+    end
+
+    local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
+    if BrawlerProgressionConfig and BrawlerProgressionConfig.canUpgradeBrawlerState then
+        local ok, canUpgrade = pcall(function()
+            return BrawlerProgressionConfig.canUpgradeBrawlerState(state, {
+                Coins = GetCoins(),
+                PowerPoints = GetPowerPoints(),
+            }, brawler and brawler.rarity or nil)
+        end)
+        if ok then
+            return canUpgrade == true
+        end
+    end
+
+    local costs = GetBrawlerUpgradeCost(brawlerId, state)
+    if not costs then
+        return true
+    end
+    return GetCoins() >= costs.coins and GetPowerPoints() >= costs.powerPoints
+end
+
+local function ScoreBrawlerUpgradeCandidate(brawlerId, state, targetLevel)
+    local costs = GetBrawlerUpgradeCost(brawlerId, state)
+    local level = math.max(1, math.floor(tonumber(state.level) or 1))
+    local selectedSlots = GetBattleSlots()
+    local selectedBonus = 0
+    if typeof(selectedSlots) == "table" then
+        for _, slotId in ipairs(selectedSlots) do
+            if slotId == brawlerId then
+                selectedBonus = 500000
+                break
+            end
+        end
+    end
+
+    local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
+    local rarityBonus = BrawlerRarityScore[brawler and brawler.rarity or ""] or 0
+    local costScore = costs and math.max(1, costs.coins + costs.powerPoints * 10) or 1
+
+    return selectedBonus + rarityBonus * 100000 + (100 - level) * 1000 - costScore / 1000000
+end
+
+local function ChooseBrawlerUpgradeCandidate(targetLevel, skipIds)
+    local _, inventory = GetBattleSlots()
+    if typeof(inventory) ~= "table" or typeof(inventory.byId) ~= "table" then
+        return nil, "inventory unavailable"
+    end
+
+    local best = nil
+    local unlocked = 0
+    local blockedByCost = 0
+    local maxedOrTargeted = 0
+    local matchingTemporarilyBlocked = 0
+    local firstCostBlockedText = nil
+    for brawlerId, state in pairs(inventory.byId) do
+        if typeof(brawlerId) == "string" and typeof(state) == "table" and state.unlocked == true then
+            unlocked += 1
+            local temporaryBlockReason = GetBrawlerUpgradeTemporaryBlockReason(brawlerId)
+            if (typeof(skipIds) == "table" and skipIds[brawlerId]) or temporaryBlockReason then
+                matchingTemporarilyBlocked += 1
+            elseif CanUpgradeBrawler(brawlerId, state, targetLevel) then
+                local score = ScoreBrawlerUpgradeCandidate(brawlerId, state, targetLevel)
+                if score and (not best or score > best.score) then
+                    best = {
+                        id = brawlerId,
+                        score = score,
+                        state = state,
+                    }
+                end
+            else
+                local costs = GetBrawlerUpgradeCost(brawlerId, state)
+                local level = math.max(1, math.floor(tonumber(state.level) or 1))
+                local maxLevel = tonumber(BrawlerProgressionConfig and BrawlerProgressionConfig.MaxLevel) or 11
+                local wantedLevel = math.clamp(math.floor(tonumber(targetLevel) or maxLevel), 1, maxLevel)
+                if not costs and level < maxLevel and level < wantedLevel then
+                    local score = ScoreBrawlerUpgradeCandidate(brawlerId, state, targetLevel)
+                    if score and (not best or score > best.score) then
+                        best = {
+                            id = brawlerId,
+                            score = score,
+                            state = state,
+                        }
+                    end
+                elseif costs and level < maxLevel and level < wantedLevel then
+                    blockedByCost += 1
+                    if not firstCostBlockedText then
+                        firstCostBlockedText = GetBrawlerUpgradeDebugText(brawlerId, state)
+                    end
                 else
-                    SetStatus(UpgradeStatusLabel, "Status", "Waiting for Silver")
+                    maxedOrTargeted += 1
                 end
-                return UpgradeDelay
-            end, 1)
-        else
-            SetStatus(UpgradeStatusLabel, "Status", "Idle")
+            end
         end
-    end,
-})
+    end
 
-UpgradeTab:CreateSection("Rebirth")
-UpgradeTab:CreateInput({
-    Name = "Rebirth Delay (seconds)",
-    PlaceholderText = "Default: 5",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(v)
-        RebirthDelay = math.max(tonumber(v) or 5, 1)
-    end,
-})
+    if best then
+        return best.id, "ready", best.state
+    end
+    if unlocked <= 0 then
+        return nil, "no unlocked brawlers in inventory"
+    end
+    if blockedByCost > 0 then
+        return nil, "not enough Coins or PowerPoints | firstBlocked=" .. tostring(firstCostBlockedText or "-")
+    end
+    if matchingTemporarilyBlocked > 0 then
+        return nil, "waiting for Coins or PowerPoints"
+    end
+    if maxedOrTargeted > 0 then
+        return nil, "unlocked brawlers are maxed or at target"
+    end
+    return nil, "no upgrade candidate"
+end
 
-UpgradeTab:CreateButton({
-    Name = "Rebirth Once",
-    Callback = function()
-        if CanRebirth() then
-            SafeInvoke("RequestRebirth")
-            SetStatus(UpgradeStatusLabel, "Status", "Rebirth requested")
-        else
-            SetStatus(UpgradeStatusLabel, "Status", "Rebirth requirements not met")
+local function SmartPurchaseBrawlerUpgrade(brawlerId, state)
+    if typeof(brawlerId) ~= "string" or brawlerId == "" then
+        return false, "missing brawler id"
+    end
+
+    if not PurchaseBrawlerUpgrade then
+        return false, "PurchaseBrawlerUpgrade remote missing"
+    end
+
+    local ok, result = SafeInvoke(PurchaseBrawlerUpgrade, brawlerId)
+    if not ok then
+        InvalidateInventorySnapshot()
+        HubDebug("BrawlerUpgradeResult", "Remote failed for " .. GetBrawlerUpgradeDebugText(brawlerId, state) .. " | result=" .. tostring(result or "remote call failed"))
+        return false, result or "remote call failed"
+    end
+
+    if typeof(result) == "table" and result.ok == false then
+        InvalidateInventorySnapshot()
+        SetBrawlerUpgradeTemporaryBlock(brawlerId, result.message or result.code or "server rejected upgrade")
+        HubDebug("BrawlerUpgradeResult", "Server rejected " .. GetBrawlerUpgradeDebugText(brawlerId, state) .. " | result=" .. tostring(result.message or result.code or "server rejected upgrade"))
+        return false, result.message or result.code or "server rejected upgrade"
+    end
+
+    ClearBrawlerUpgradeTemporaryBlock(brawlerId)
+    if typeof(result) == "table" and typeof(result.inventorySnapshot) == "table" then
+        InventorySnapshotCache = NormalizeInventorySnapshot(result.inventorySnapshot)
+        InventorySnapshotCacheTime = os.clock()
+    else
+        InvalidateInventorySnapshot()
+    end
+
+    HubDebug("BrawlerUpgradeResult", "Bought " .. GetBrawlerUpgradeDebugText(brawlerId, state))
+    return true, result
+end
+
+local function NormalizeDiceKind(kind)
+    if kind == "golden" then
+        return "golden"
+    end
+    if kind == "mythical" or kind == "mythic" then
+        return "mythical"
+    end
+    return "regular"
+end
+
+local function GetDiceCount(kind)
+    kind = NormalizeDiceKind(kind)
+    if kind == "golden" then
+        return GetPlayerNumberValue("GoldenDice")
+    end
+    if kind == "mythical" then
+        return GetPlayerNumberValue("MythicalDice")
+    end
+    return GetPlayerNumberValue("Dice")
+end
+
+local function SmartRollDice(kind)
+    kind = NormalizeDiceKind(kind)
+    if GetDiceCount(kind) <= 0 then
+        return false, nil
+    end
+    return SafeInvoke(RollDice, kind)
+end
+
+local function ClaimAllKnownAchievements(delaySeconds)
+    if not AchievementConfig or typeof(AchievementConfig.Achievements) ~= "table" then
+        SafeInvoke(ClaimAchievementReward)
+        return
+    end
+
+    for _, achievement in ipairs(AchievementConfig.Achievements) do
+        if typeof(achievement) == "table" and typeof(achievement.id) == "string" then
+            SafeInvoke(ClaimAchievementReward, achievement.id)
+            task.wait(delaySeconds or 0.1)
         end
-    end,
-})
+    end
+end
 
-UpgradeTab:CreateToggle({
-    Name = "Auto Rebirth",
+local function GetRankedBrawlerScore(brawlerId, state, inventory, mode)
+    local level = math.max(1, math.floor(tonumber(state and state.level) or 1))
+    local trophies = math.max(0, math.floor(tonumber(state and state.trophies) or 0))
+    local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
+    local rarityScore = BrawlerRarityScore[brawler and brawler.rarity or ""] or 0
+    local selectedBonus = inventory and inventory.selectedBrawlerId == brawlerId and 1000000000 or 0
+    local orderPenalty = tonumber(brawler and brawler.order) or 9999
+
+    if mode == "Selected Brawler" then
+        return selectedBonus + level * 1000000 + trophies * 100 + rarityScore * 1000 - orderPenalty
+    end
+
+    if mode == "Highest Level" then
+        return level * 100000000 + trophies * 100 + rarityScore * 1000 - orderPenalty
+    end
+
+    if mode == "Highest Trophies" then
+        return trophies * 100000 + level * 1000 + rarityScore * 100 - orderPenalty
+    end
+
+    return level * 10000000 + trophies * 1000 + rarityScore * 100000 - orderPenalty
+end
+
+local function GetBestRankedBrawlerCandidates(inventory)
+    local candidates = {}
+    if typeof(inventory) == "table" and typeof(inventory.byId) == "table" then
+        for brawlerId, state in pairs(inventory.byId) do
+            if typeof(brawlerId) == "string" and typeof(state) == "table" and state.unlocked == true then
+                candidates[#candidates + 1] = {
+                    id = brawlerId,
+                    score = GetRankedBrawlerScore(brawlerId, state, inventory, RankedBrawlerMode),
+                }
+            end
+        end
+    end
+
+    if #candidates <= 0 then
+        return { { id = "shelly", score = 0 } }
+    end
+
+    table.sort(candidates, function(a, b)
+        return a.score > b.score
+    end)
+    return candidates
+end
+
+local function GetRankedRotationLimit(candidateCount)
+    if RankedBrawlerMode == "Rotate Top 3" then
+        return math.min(candidateCount, 3)
+    end
+    if RankedBrawlerMode == "Rotate Top 5" then
+        return math.min(candidateCount, 5)
+    end
+    return 0
+end
+
+local function GetRankedRoundAttemptOrder(candidates, roundNumber)
+    if typeof(candidates) ~= "table" or #candidates <= 0 then
+        return { { id = "shelly", score = 0 } }
+    end
+
+    local limit = GetRankedRotationLimit(#candidates)
+    if limit <= 1 then
+        return candidates
+    end
+
+    local ordered = {}
+    local added = {}
+    local startIndex = ((math.max(1, math.floor(tonumber(roundNumber) or 1)) - 1) % limit) + 1
+
+    for offset = 0, limit - 1 do
+        local index = ((startIndex + offset - 1) % limit) + 1
+        local candidate = candidates[index]
+        if candidate and not added[candidate.id] then
+            added[candidate.id] = true
+            ordered[#ordered + 1] = candidate
+        end
+    end
+
+    for _, candidate in ipairs(candidates) do
+        if candidate and not added[candidate.id] then
+            added[candidate.id] = true
+            ordered[#ordered + 1] = candidate
+        end
+    end
+
+    return ordered
+end
+
+local function GetRankedRoundLeadBrawlerId(candidates, roundNumber)
+    local order = GetRankedRoundAttemptOrder(candidates, roundNumber)
+    local first = order and order[1]
+    return typeof(first) == "table" and first.id or "shelly"
+end
+
+local function SelectBestRankedBrawler(candidates)
+    local best = candidates and candidates[1]
+    local bestId = typeof(best) == "table" and best.id or "shelly"
+    if typeof(bestId) ~= "string" or bestId == "" then
+        bestId = "shelly"
+    end
+
+    if SafeFire(SelectBrawler, bestId) then
+        InvalidateInventorySnapshot()
+        task.wait(0.08)
+    end
+    return bestId
+end
+
+local function ExtractRankedRewardToken(result)
+    if typeof(result) ~= "table" then
+        return nil
+    end
+    local token = result.rankedRewardRollToken or result.rewardRollToken or result.rollToken
+    if token then
+        return token
+    end
+    if typeof(result.matchResult) == "table" then
+        return ExtractRankedRewardToken(result.matchResult)
+    end
+    return nil
+end
+
+local function ResolveRankedRound(matchId, roundNumber, candidates)
+    local lastMessage = nil
+    for _, candidate in ipairs(GetRankedRoundAttemptOrder(candidates, roundNumber)) do
+        local brawlerId = candidate.id
+        if SafeFire(SelectBrawler, brawlerId) then
+            task.wait(0.08)
+        end
+        local roundOk, round = SafeInvoke(RankedRoundResolve, matchId, roundNumber, brawlerId)
+        local retries = 0
+        while roundOk and typeof(round) == "table" and round.ok ~= true and (round.code == "too_fast" or round.code == "rate_limited") and retries < 4 do
+            task.wait(math.clamp(tonumber(round.retryAfter) or 0.75, 0.5, 6))
+            roundOk, round = SafeInvoke(RankedRoundResolve, matchId, roundNumber, brawlerId)
+            retries += 1
+        end
+
+        if roundOk and typeof(round) == "table" and round.ok == true then
+            return true, round, brawlerId
+        end
+
+        lastMessage = typeof(round) == "table" and round.message or "round failed"
+        task.wait(0.15)
+    end
+
+    return false, lastMessage, nil
+end
+
+local function GetRankedRoundPaceDelay(round)
+    local baseDelay = math.max(tonumber(RuntimeSettings.RankedRoundDelay) or 4.5, 0.75)
+    if typeof(round) == "table" then
+        local retryAfter = tonumber(round.retryAfter)
+        if retryAfter and retryAfter > 0 then
+            return math.max(baseDelay, math.clamp(retryAfter, 0.75, 8))
+        end
+    end
+    return baseDelay
+end
+
+local function FinishRankedMatch(matchId)
+    if typeof(matchId) ~= "string" or matchId == "" or not RankedMatchFinish then
+        return false, nil
+    end
+    return SafeInvoke(RankedMatchFinish, matchId)
+end
+
+local function GetRankedMatchResult(round)
+    if typeof(round) ~= "table" then
+        return nil
+    end
+    if typeof(round.matchResult) == "table" and round.matchResult.ok == true then
+        return round.matchResult
+    end
+    if round.matchFinished == true then
+        return round
+    end
+    return nil
+end
+
+local function GetRankedResultText(result, playerWins, opponentWins)
+    if typeof(result) ~= "table" then
+        return string.format("%d-%d", tonumber(playerWins) or 0, tonumber(opponentWins) or 0)
+    end
+
+    local didWin = result.playerWon
+    if didWin == nil then
+        didWin = result.didWin
+    end
+
+    local outcome = didWin == true and "Won" or "Lost"
+    local after = tonumber(result.afterRankedTrophies or result.rankedTrophies)
+    if after then
+        return string.format("%s | %d-%d | Trophies: %d", outcome, tonumber(playerWins) or 0, tonumber(opponentWins) or 0, after)
+    end
+    return string.format("%s | %d-%d", outcome, tonumber(playerWins) or 0, tonumber(opponentWins) or 0)
+end
+
+local function RollRankedReward(token)
+    if typeof(token) ~= "string" or token == "" or not RankedRewardRoll then
+        return false, nil
+    end
+    return SafeInvoke(RankedRewardRoll, token)
+end
+
+local function AutoPlayRankedMatch(autoRollReward)
+    if not RankedMatchStart or not RankedRoundResolve then
+        SetRankedStatus("Ranked remotes missing")
+        return false
+    end
+
+    local _, inventory = GetBattleSlots()
+    local rankedCandidates = GetBestRankedBrawlerCandidates(inventory)
+    local selectedBrawlerId = SelectBestRankedBrawler(rankedCandidates)
+    SetRankedStatus("Starting ranked: " .. tostring(selectedBrawlerId))
+
+    local startOk, startResult = SafeInvoke(RankedMatchStart)
+    if not startOk or typeof(startResult) ~= "table" or startResult.ok ~= true then
+        local message = typeof(startResult) == "table" and startResult.message or "start failed"
+        SetRankedStatus("Ranked start failed: " .. tostring(message))
+        return false
+    end
+
+    local matchId = startResult.matchId
+    if typeof(matchId) ~= "string" or matchId == "" then
+        SetRankedStatus("Ranked start failed: no match id")
+        return false
+    end
+
+    player:SetAttribute("RankedMatchActive", true)
+
+    local playerWins = 0
+    local opponentWins = 0
+    local matchResult = nil
+    local lastBrawlerId = selectedBrawlerId
+
+    for roundNumber = 1, 9 do
+        local plannedBrawlerId = GetRankedRoundLeadBrawlerId(rankedCandidates, roundNumber)
+        SetRankedStatus(string.format("Resolving round %d with %s", roundNumber, tostring(plannedBrawlerId)))
+        local roundOk, round, usedBrawlerId = ResolveRankedRound(matchId, roundNumber, rankedCandidates)
+        lastBrawlerId = usedBrawlerId or lastBrawlerId
+
+        if not roundOk then
+            FinishRankedMatch(matchId)
+            player:SetAttribute("RankedMatchActive", false)
+            SetRankedStatus("Round failed: " .. tostring(round))
+            return false
+        end
+
+        playerWins = math.max(0, math.floor(tonumber(round.playerWins) or playerWins))
+        opponentWins = math.max(0, math.floor(tonumber(round.opponentWins) or opponentWins))
+        SetRankedStatus(string.format("Round %d done: %d-%d | %s", roundNumber, playerWins, opponentWins, tostring(lastBrawlerId)))
+
+        matchResult = GetRankedMatchResult(round)
+        if matchResult then
+            break
+        end
+
+        local paceDelay = GetRankedRoundPaceDelay(round)
+        SetRankedStatus(string.format("Waiting %.1fs before round %d", paceDelay, roundNumber + 1))
+        task.wait(paceDelay)
+    end
+
+    if not matchResult then
+        local finishOk, finishResult = FinishRankedMatch(matchId)
+        if finishOk and typeof(finishResult) == "table" and finishResult.ok == true then
+            matchResult = finishResult
+            playerWins = math.max(0, math.floor(tonumber(finishResult.playerWins) or playerWins))
+            opponentWins = math.max(0, math.floor(tonumber(finishResult.opponentWins) or opponentWins))
+        end
+    end
+
+    player:SetAttribute("RankedMatchActive", false)
+
+    local resultText = GetRankedResultText(matchResult, playerWins, opponentWins)
+    SetRankedResult(resultText)
+
+    local token = ExtractRankedRewardToken(matchResult)
+    if autoRollReward and token then
+        SetRankedStatus("Rolling ranked reward")
+        local rewardOk, reward = RollRankedReward(token)
+        if rewardOk and typeof(reward) == "table" and reward.ok == true then
+            SetRankedStatus("Ranked complete + reward rolled")
+        else
+            local message = typeof(reward) == "table" and reward.message or "reward failed"
+            SetRankedStatus("Ranked complete | reward failed: " .. tostring(message))
+        end
+    else
+        SetRankedStatus("Ranked complete")
+    end
+
+    return true
+end
+
+-- ============================================================
+--  AUTO TAB
+-- ============================================================
+do
+AutoTab:CreateSection("Auto Clicker")
+
+local Clicking = false
+AutoTab:CreateToggle({
+    Name         = "Auto Click (0.1s)",
     CurrentValue = false,
-    Flag = "PetsAdventureAutoRebirth",
-    Callback = function(v)
+    Flag         = "AutoClick",
+    Callback     = function(v)
+        Clicking = v
+        if Clicking then
+            StartManagedLoop("AutoClick", function() return Clicking end, function()
+                SafeFire(ClickerTap)
+                return 0.1
+            end, 0.5)
+        end
+    end,
+})
+
+AutoTab:CreateSection("Server Auto Clicker")
+
+local ServerAutoClicker = false
+AutoTab:CreateToggle({
+    Name         = "Enable Server Auto Clicker",
+    CurrentValue = false,
+    Flag         = "ServerAutoClicker",
+    Callback     = function(v)
+        ServerAutoClicker = v
+        SafeInvoke(SetAutoClickerEnabled, v)
+    end,
+})
+
+AutoTab:CreateSection("Auto Rebirth")
+
+local RebirthDelay = 5
+AutoTab:CreateInput({
+    Name                = "Rebirth Delay (seconds)",
+    PlaceholderText     = "Default: 5",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        RebirthDelay = math.max(tonumber(v) or 5, 0.1)
+    end,
+})
+
+local AutoRebirth = false
+AutoTab:CreateToggle({
+    Name         = "Auto Rebirth",
+    CurrentValue = false,
+    Flag         = "AutoRebirth",
+    Callback     = function(v)
         AutoRebirth = v
         if AutoRebirth then
-            StartManagedLoop("PetsAutoRebirth", function() return AutoRebirth end, function()
-                if CanRebirth() then
-                    SafeInvoke("RequestRebirth")
-                    SetStatus(UpgradeStatusLabel, "Status", "Rebirth requested")
-                    return 2
-                end
+            StartManagedLoop("AutoRebirth", function() return AutoRebirth end, function()
+                SmartPurchaseRebirth()
                 return RebirthDelay
             end, 2)
         end
     end,
 })
 
-UpgradeTab:CreateSection("Inner Abilities")
-UpgradeTab:CreateDropdown({
-    Name = "Roll Currency",
-    Options = { "Rune", "Diamond" },
-    CurrentOption = { "Rune" },
-    MultipleOptions = false,
-    Flag = "PetsAdventureInnerRollCurrency",
-    Callback = function(v)
-        InnerRollCurrency = GetDropdownChoice(v, InnerRollCurrency)
-    end,
-})
+AutoTab:CreateSection("Auto Claim Rewards")
 
-UpgradeTab:CreateButton({
-    Name = "Roll All Inner Abilities",
-    Callback = function()
-        SafeInvoke("InnerAbilitiesRollAll", InnerRollCurrency)
-        SetStatus(UpgradeStatusLabel, "Status", "Rolled inner abilities")
-    end,
-})
-
-UpgradeTab:CreateButton({
-    Name = "Unlock Next Inner Slot",
-    Callback = function()
-        local nextSlot = math.max(1, math.floor(tonumber(InnerAbilityCache.unlockedSlots) or 2) + 1)
-        SafeInvoke("InnerAbilitiesUnlockSlot", nextSlot)
-        SetStatus(UpgradeStatusLabel, "Status", "Unlock slot requested: " .. tostring(nextSlot))
-    end,
-})
-
-UpgradeTab:CreateToggle({
-    Name = "Auto Roll Inner Abilities",
+local AutoClaimDaily = false
+AutoTab:CreateToggle({
+    Name         = "Auto Claim Daily Reward",
     CurrentValue = false,
-    Flag = "PetsAdventureAutoInnerRoll",
-    Callback = function(v)
-        AutoInnerRoll = v
-        if AutoInnerRoll then
-            StartManagedLoop("PetsAutoInnerRoll", function() return AutoInnerRoll end, function()
-                SafeInvoke("InnerAbilitiesRollAll", InnerRollCurrency)
-                return 8
-            end, 3)
-        end
-    end,
-})
-end
-
--- ============================================================
---  REWARDS TAB
--- ============================================================
-do
-RewardsTab:CreateSection("Rewards")
-RewardStatusLabel = RewardsTab:CreateLabel("Status: Idle")
-
-local AutoDaily = false
-local AutoSocial = false
-local AutoSpin = false
-local AutoFountain = false
-local AutoCodes = false
-local KnownCodes = {}
-local RewardDelay = 10
-
-RewardsTab:CreateInput({
-    Name = "Reward Loop Delay (seconds)",
-    PlaceholderText = "Default: 10",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(v)
-        RewardDelay = math.max(tonumber(v) or 10, 2)
-    end,
-})
-
-RewardsTab:CreateButton({
-    Name = "Claim Daily Rewards",
-    Callback = function()
-        ClaimDailyAvailable()
-        SetStatus(RewardStatusLabel, "Status", "Daily claim attempted")
-    end,
-})
-
-RewardsTab:CreateToggle({
-    Name = "Auto Claim Daily Rewards",
-    CurrentValue = false,
-    Flag = "PetsAdventureAutoDaily",
-    Callback = function(v)
-        AutoDaily = v
-        if AutoDaily then
-            StartManagedLoop("PetsAutoDaily", function() return AutoDaily end, function()
-                ClaimDailyAvailable()
-                SetStatus(RewardStatusLabel, "Status", "Checking daily rewards")
-                return RewardDelay
-            end, 3)
-        end
-    end,
-})
-
-RewardsTab:CreateButton({
-    Name = "Claim Social Boosts",
-    Callback = function()
-        SafeInvoke("ClaimSocialBoost", "FavoriteBoost")
-        SafeInvoke("ClaimSocialBoost", "GroupBoost")
-        SetStatus(RewardStatusLabel, "Status", "Social boost claim attempted")
-    end,
-})
-
-RewardsTab:CreateToggle({
-    Name = "Auto Claim Social Boosts",
-    CurrentValue = false,
-    Flag = "PetsAdventureAutoSocial",
-    Callback = function(v)
-        AutoSocial = v
-        if AutoSocial then
-            StartManagedLoop("PetsAutoSocial", function() return AutoSocial end, function()
-                SafeInvoke("ClaimSocialBoost", "FavoriteBoost")
-                task.wait(0.2)
-                SafeInvoke("ClaimSocialBoost", "GroupBoost")
+    Flag         = "AutoClaimDaily",
+    Callback     = function(v)
+        AutoClaimDaily = v
+        if AutoClaimDaily then
+            StartManagedLoop("AutoClaimDaily", function() return AutoClaimDaily end, function()
+                SafeInvoke(ClaimDailyReward)
                 return 30
             end, 5)
         end
     end,
 })
 
-RewardsTab:CreateButton({
-    Name = "Spin Wheel Once",
-    Callback = function()
-        SafeFire("SpinSync")
-        task.wait(0.2)
-        if AutoSpinOnce() then
-            SetStatus(RewardStatusLabel, "Status", "Spin requested")
-        else
-            SetStatus(RewardStatusLabel, "Status", "No spins available")
-        end
-    end,
-})
-
-RewardsTab:CreateToggle({
-    Name = "Auto Spin Wheel",
+local AutoClaimAchievements = false
+AutoTab:CreateToggle({
+    Name         = "Auto Claim Achievements",
     CurrentValue = false,
-    Flag = "PetsAdventureAutoSpin",
-    Callback = function(v)
-        AutoSpin = v
-        if AutoSpin then
-            StartManagedLoop("PetsAutoSpin", function() return AutoSpin end, function()
-                SafeFire("SpinSync")
-                task.wait(0.2)
-                if AutoSpinOnce() then
-                    SetStatus(RewardStatusLabel, "Status", "Spinning")
-                    return 2
-                end
-                return RewardDelay
-            end, 3)
-        end
-    end,
-})
-
-RewardsTab:CreateButton({
-    Name = "Roll Wishing Fountain Once",
-    Callback = function()
-        if RollFountainOnce() then
-            SetStatus(RewardStatusLabel, "Status", "Fountain roll requested")
-        else
-            SetStatus(RewardStatusLabel, "Status", "Not enough Silver or roll failed")
-        end
-    end,
-})
-
-RewardsTab:CreateToggle({
-    Name = "Auto Wishing Fountain",
-    CurrentValue = false,
-    Flag = "PetsAdventureAutoFountain",
-    Callback = function(v)
-        AutoFountain = v
-        SafeFire("WishingFountainSetAuto", v)
-        if AutoFountain then
-            StartManagedLoop("PetsAutoFountain", function() return AutoFountain end, function()
-                if RollFountainOnce() then
-                    SetStatus(RewardStatusLabel, "Status", "Rolling fountain")
-                    return 2
-                end
-                return RewardDelay
-            end, 3)
-        end
-    end,
-})
-
-RewardsTab:CreateSection("Codes")
-RewardsTab:CreateInput({
-    Name = "Codes (comma-separated)",
-    PlaceholderText = "code1, code2",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(v)
-        KnownCodes = {}
-        for code in string.gmatch(tostring(v or ""), "[^,%s]+") do
-            KnownCodes[#KnownCodes + 1] = code
-        end
-    end,
-})
-
-RewardsTab:CreateButton({
-    Name = "Redeem Codes",
-    Callback = function()
-        local count = 0
-        for _, code in ipairs(KnownCodes) do
-            SafeInvoke("RedeemCode", code)
-            count += 1
-            task.wait(0.7)
-        end
-        SetStatus(RewardStatusLabel, "Status", "Redeemed " .. tostring(count) .. " code(s)")
-    end,
-})
-
-RewardsTab:CreateToggle({
-    Name = "Auto Redeem Codes",
-    CurrentValue = false,
-    Flag = "PetsAdventureAutoCodes",
-    Callback = function(v)
-        AutoCodes = v
-        if AutoCodes then
-            StartManagedLoop("PetsAutoCodes", function() return AutoCodes end, function()
-                for _, code in ipairs(KnownCodes) do
-                    SafeInvoke("RedeemCode", code)
-                    task.wait(0.7)
-                end
-                return 60
+    Flag         = "AutoClaimAchievements",
+    Callback     = function(v)
+        AutoClaimAchievements = v
+        if AutoClaimAchievements then
+            StartManagedLoop("AutoClaimAchievements", function() return AutoClaimAchievements end, function()
+                ClaimAllKnownAchievements(0.05)
+                return 30
             end, 5)
         end
     end,
 })
-end
 
--- ============================================================
---  INVENTORY TAB
--- ============================================================
-do
-InventoryTab:CreateSection("Open / Use")
-InventoryStatusLabel = InventoryTab:CreateLabel("Status: Idle")
-
-local OpenAmountMode = "All"
-local AutoOpenEggs = false
-local AutoOpenChests = false
-local AutoUsePotions = false
-local InventoryDelay = 3
-
-InventoryTab:CreateDropdown({
-    Name = "Amount",
-    Options = { "All", "One Each" },
-    CurrentOption = { "All" },
-    MultipleOptions = false,
-    Flag = "PetsAdventureOpenAmount",
-    Callback = function(v)
-        OpenAmountMode = GetDropdownChoice(v, OpenAmountMode)
+local AutoClaimTrophyRoad = false
+AutoTab:CreateToggle({
+    Name         = "Auto Claim Trophy Road",
+    CurrentValue = false,
+    Flag         = "AutoClaimTrophyRoad",
+    Callback     = function(v)
+        AutoClaimTrophyRoad = v
+        if AutoClaimTrophyRoad then
+            StartManagedLoop("AutoClaimTrophyRoad", function() return AutoClaimTrophyRoad end, function()
+                SafeInvoke(ClaimTrophyRoadRankUpReward)
+                return 15
+            end, 5)
+        end
     end,
 })
 
-InventoryTab:CreateInput({
-    Name = "Inventory Loop Delay (seconds)",
-    PlaceholderText = "Default: 3",
+AutoTab:CreateSection("Auto Clicker Bonus")
+
+local AutoClickerBonus = false
+local ClickerBonusDelay = 5
+AutoTab:CreateInput({
+    Name                = "Clicker Bonus Delay (seconds)",
+    PlaceholderText     = "Default: 5",
     RemoveTextAfterFocusLost = false,
-    Callback = function(v)
-        InventoryDelay = math.max(tonumber(v) or 3, 1)
+    Callback            = function(v)
+        ClickerBonusDelay = math.max(tonumber(v) or 5, 1)
     end,
 })
-
-InventoryTab:CreateButton({
-    Name = "Open All Eggs",
-    Callback = function()
-        local opened = OpenInventoryType("Egg", "HatchEggs", OpenAmountMode)
-        SetStatus(InventoryStatusLabel, "Status", "Egg opens requested: " .. tostring(opened))
-    end,
-})
-
-InventoryTab:CreateToggle({
-    Name = "Auto Open Eggs",
+AutoTab:CreateToggle({
+    Name         = "Auto Redeem Clicker Bonus",
     CurrentValue = false,
-    Flag = "PetsAdventureAutoEggs",
-    Callback = function(v)
-        AutoOpenEggs = v
-        if AutoOpenEggs then
-            StartManagedLoop("PetsAutoOpenEggs", function() return AutoOpenEggs end, function()
-                local opened = OpenInventoryType("Egg", "HatchEggs", OpenAmountMode)
-                if opened > 0 then
-                    SetStatus(InventoryStatusLabel, "Status", "Egg opens requested: " .. tostring(opened))
-                end
-                return InventoryDelay
-            end, 3)
+    Flag         = "AutoClickerBonus",
+    Callback     = function(v)
+        AutoClickerBonus = v
+        if AutoClickerBonus then
+            StartManagedLoop("AutoClickerBonus", function() return AutoClickerBonus end, function()
+                SafeInvoke(RedeemClickerBonus)
+                return ClickerBonusDelay
+            end, 2)
         end
     end,
 })
 
-InventoryTab:CreateButton({
-    Name = "Open All Chests",
-    Callback = function()
-        local opened = OpenInventoryType("MysteryBox", "OpenChest", OpenAmountMode)
-        SetStatus(InventoryStatusLabel, "Status", "Chest opens requested: " .. tostring(opened))
-    end,
-})
-
-InventoryTab:CreateToggle({
-    Name = "Auto Open Chests",
-    CurrentValue = false,
-    Flag = "PetsAdventureAutoChests",
-    Callback = function(v)
-        AutoOpenChests = v
-        if AutoOpenChests then
-            StartManagedLoop("PetsAutoOpenChests", function() return AutoOpenChests end, function()
-                local opened = OpenInventoryType("MysteryBox", "OpenChest", OpenAmountMode)
-                if opened > 0 then
-                    SetStatus(InventoryStatusLabel, "Status", "Chest opens requested: " .. tostring(opened))
-                end
-                return InventoryDelay
-            end, 3)
-        end
-    end,
-})
-
-InventoryTab:CreateButton({
-    Name = "Use All Potions",
-    Callback = function()
-        local used = UseAllPotions()
-        SetStatus(InventoryStatusLabel, "Status", "Potion use requested: " .. tostring(used))
-    end,
-})
-
-InventoryTab:CreateToggle({
-    Name = "Auto Use Potions",
-    CurrentValue = false,
-    Flag = "PetsAdventureAutoPotions",
-    Callback = function(v)
-        AutoUsePotions = v
-        if AutoUsePotions then
-            StartManagedLoop("PetsAutoUsePotions", function() return AutoUsePotions end, function()
-                local used = UseAllPotions()
-                if used > 0 then
-                    SetStatus(InventoryStatusLabel, "Status", "Potion use requested: " .. tostring(used))
-                end
-                return InventoryDelay
-            end, 3)
-        end
-    end,
-})
-
-InventoryTab:CreateSection("Collection / Relics")
-InventoryTab:CreateButton({
-    Name = "Deposit Pet Collection",
-    Callback = function()
-        SafeFire("CollectionDepositAll")
-        SetStatus(InventoryStatusLabel, "Status", "Pet collection deposit requested")
-    end,
-})
-
-InventoryTab:CreateButton({
-    Name = "Dissolve All Relics by Type",
-    Callback = function()
-        local dissolved = 0
-        for _, entry in ipairs(GetInventoryEntriesByType("Equipment")) do
-            SafeFire("DissolveAllRelics", entry.id)
-            dissolved += 1
-            task.wait(0.15)
-        end
-        SetStatus(InventoryStatusLabel, "Status", "Relic dissolve requests: " .. tostring(dissolved))
-    end,
-})
 end
 
 -- ============================================================
---  CRAFT TAB
+--  UPGRADES TAB
 -- ============================================================
 do
-CraftTab:CreateSection("Crafting")
-CraftStatusLabel = CraftTab:CreateLabel("Status: Idle")
+UpgradeTab:CreateSection("Auto Upgrade All")
 
-local CraftMode = "Manual"
-local ManualRecipe = (CraftingConfig and CraftingConfig.RecipeOrder and CraftingConfig.RecipeOrder[1]) or ""
-local AutoCraft = false
-local AutoClaimCraft = false
+UpgradeList = {
+    { "ClickPower",    "single" },
+    { "CoinGenerator", "single" },
+    { "AutoClicker",   "single" },
+}
 
-local recipeOptions = {}
-if CraftingConfig and typeof(CraftingConfig.RecipeOrder) == "table" then
-    for _, recipeId in ipairs(CraftingConfig.RecipeOrder) do
-        recipeOptions[#recipeOptions + 1] = recipeId
+local SmartUpgradeMode = "Best Value"
+UpgradeTab:CreateDropdown({
+    Name    = "Smart Upgrade Mode",
+    Options = { "Best Value", "Cheapest", "Fixed Order" },
+    CurrentOption = { "Best Value" },
+    MultipleOptions = false,
+    Flag    = "SmartUpgradeMode",
+    Callback = function(v)
+        SmartUpgradeMode = GetDropdownChoice(v, SmartUpgradeMode)
+    end,
+})
+
+local AutoUpgradeAll = false
+UpgradeTab:CreateToggle({
+    Name         = "Auto Upgrade All (Loop)",
+    CurrentValue = false,
+    Flag         = "AutoUpgradeAll",
+    Callback     = function(v)
+        AutoUpgradeAll = v
+        if AutoUpgradeAll then
+            StartManagedLoop("AutoUpgradeAll", function() return AutoUpgradeAll end, function()
+                local snapshot = GetUpgradeSnapshot()
+                local upgradeId = ChooseSmartUpgrade(SmartUpgradeMode, snapshot)
+                if upgradeId then
+                    SmartPurchaseUpgrade(upgradeId, "single", snapshot)
+                end
+                return 0.3
+            end, 1)
+        end
+    end,
+})
+
+local AutoMaxUpgradeAll = false
+UpgradeTab:CreateToggle({
+    Name         = "Auto MAX Upgrade All",
+    CurrentValue = false,
+    Flag         = "AutoMaxUpgradeAll",
+    Callback     = function(v)
+        AutoMaxUpgradeAll = v
+        if AutoMaxUpgradeAll then
+            StartManagedLoop("AutoMaxUpgradeAll", function() return AutoMaxUpgradeAll end, function()
+                local snapshot = GetUpgradeSnapshot()
+                for _, entry in ipairs(UpgradeList) do
+                    if not AutoMaxUpgradeAll then break end
+                    SmartPurchaseUpgrade(entry[1], "max", snapshot)
+                    task.wait(0.15)
+                end
+                return 0.5
+            end, 1)
+        end
+    end,
+})
+
+UpgradeTab:CreateSection("Individual Upgrades")
+
+local AutoClickPower = false
+UpgradeTab:CreateToggle({
+    Name         = "Auto Buy ClickPower",
+    CurrentValue = false,
+    Flag         = "AutoClickPower",
+    Callback     = function(v)
+        AutoClickPower = v
+        if AutoClickPower then
+            StartManagedLoop("AutoClickPower", function() return AutoClickPower end, function()
+                SmartPurchaseUpgrade("ClickPower", "single")
+                return 0.3
+            end, 1)
+        end
+    end,
+})
+
+local AutoCoinGen = false
+UpgradeTab:CreateToggle({
+    Name         = "Auto Buy CoinGenerator",
+    CurrentValue = false,
+    Flag         = "AutoCoinGenerator",
+    Callback     = function(v)
+        AutoCoinGen = v
+        if AutoCoinGen then
+            StartManagedLoop("AutoCoinGenerator", function() return AutoCoinGen end, function()
+                SmartPurchaseUpgrade("CoinGenerator", "single")
+                return 0.3
+            end, 1)
+        end
+    end,
+})
+
+local AutoAutoClicker = false
+UpgradeTab:CreateToggle({
+    Name         = "Auto Buy AutoClicker Upgrade",
+    CurrentValue = false,
+    Flag         = "AutoAutoClicker",
+    Callback     = function(v)
+        AutoAutoClicker = v
+        if AutoAutoClicker then
+            StartManagedLoop("AutoAutoClicker", function() return AutoAutoClicker end, function()
+                SmartPurchaseUpgrade("AutoClicker", "single")
+                return 0.3
+            end, 1)
+        end
+    end,
+})
+
+UpgradeTab:CreateSection("Brawler Upgrades")
+
+local BrawlerUpgradeTargetLevel = tonumber(BrawlerProgressionConfig and BrawlerProgressionConfig.MaxLevel) or 11
+local BrawlerUpgradeBatchSize = 3
+local BrawlerUpgradeDelay = 2
+local BrawlerUpgradeStatusLabel = UpgradeTab:CreateLabel("Brawler Upgrades: Idle")
+
+local function SetBrawlerUpgradeStatus(text)
+    SetRayfieldLabel(BrawlerUpgradeStatusLabel, "Brawler Upgrades: " .. tostring(text or "-"))
+end
+
+local function RunBrawlerUpgradeBatch()
+    local upgraded = 0
+    local lastName = nil
+    local lastReason = nil
+    local skippedThisBatch = {}
+    local attempts = 0
+    local maxAttempts = math.max(BrawlerUpgradeBatchSize + 3, BrawlerUpgradeBatchSize * 3)
+
+    while upgraded < BrawlerUpgradeBatchSize and attempts < maxAttempts do
+        attempts += 1
+        local brawlerId, reason, candidateState = ChooseBrawlerUpgradeCandidate(
+            BrawlerUpgradeTargetLevel,
+            skippedThisBatch
+        )
+        if not brawlerId then
+            lastReason = reason
+            break
+        end
+
+        HubDebug(
+            "BrawlerUpgradeAttempt",
+            "Trying " .. GetBrawlerUpgradeDebugText(brawlerId, candidateState)
+                .. " targetLevel=" .. tostring(BrawlerUpgradeTargetLevel)
+        )
+
+        local ok, result = SmartPurchaseBrawlerUpgrade(brawlerId, candidateState)
+        if not ok then
+            lastReason = tostring(result or "upgrade failed")
+            HubDebug("BrawlerUpgrade", "Failed " .. tostring(brawlerId) .. ": " .. lastReason)
+            skippedThisBatch[brawlerId] = true
+            task.wait(0.05)
+            continue
+        end
+
+        upgraded += 1
+        lastName = GetBrawlerDisplayName(brawlerId)
+        HubDebug("BrawlerUpgrade", "Upgraded " .. tostring(brawlerId))
+        task.wait(0.15)
     end
-end
-if #recipeOptions <= 0 then
-    recipeOptions = { "WoodenSword", "MushroomStew", "AbilityRune", "EnchantmentRune" }
-end
 
-CraftTab:CreateDropdown({
-    Name = "Craft Mode",
-    Options = { "Manual", "First Affordable" },
-    CurrentOption = { "Manual" },
-    MultipleOptions = false,
-    Flag = "PetsAdventureCraftMode",
-    Callback = function(v)
-        CraftMode = GetDropdownChoice(v, CraftMode)
-    end,
-})
+    if upgraded > 0 then
+        SetBrawlerUpgradeStatus("Upgraded " .. tostring(upgraded) .. " | Last: " .. tostring(lastName or "-"))
+        return true
+    end
 
-CraftTab:CreateDropdown({
-    Name = "Manual Recipe",
-    Options = recipeOptions,
-    CurrentOption = { recipeOptions[1] },
-    MultipleOptions = false,
-    Flag = "PetsAdventureManualRecipe",
-    Callback = function(v)
-        ManualRecipe = GetDropdownChoice(v, ManualRecipe)
-    end,
-})
-
-CraftTab:CreateButton({
-    Name = "Start Craft Once",
-    Callback = function()
-        local recipeId = ChooseCraftRecipe(CraftMode, CraftMode == "Manual" and ManualRecipe or nil)
-        if recipeId then
-            local ok = SafeInvoke("StartCraft", recipeId)
-            SetStatus(CraftStatusLabel, "Status", ok and ("Started " .. recipeId) or ("Failed " .. recipeId))
-        else
-            SetStatus(CraftStatusLabel, "Status", "No craftable recipe")
-        end
-    end,
-})
-
-CraftTab:CreateToggle({
-    Name = "Auto Start Crafts",
-    CurrentValue = false,
-    Flag = "PetsAdventureAutoCraft",
-    Callback = function(v)
-        AutoCraft = v
-        if AutoCraft then
-            StartManagedLoop("PetsAutoCraft", function() return AutoCraft end, function()
-                local recipeId = ChooseCraftRecipe(CraftMode, CraftMode == "Manual" and ManualRecipe or nil)
-                if recipeId then
-                    SafeInvoke("StartCraft", recipeId)
-                    SetStatus(CraftStatusLabel, "Status", "Start requested: " .. recipeId)
-                    return 2
-                end
-                SetStatus(CraftStatusLabel, "Status", "Waiting for materials")
-                return 10
-            end, 3)
-        end
-    end,
-})
-
-CraftTab:CreateButton({
-    Name = "Claim Ready Crafts",
-    Callback = function()
-        local claimed = ClaimReadyCrafts()
-        SetStatus(CraftStatusLabel, "Status", "Claimed ready slots: " .. tostring(claimed))
-    end,
-})
-
-CraftTab:CreateToggle({
-    Name = "Auto Claim Ready Crafts",
-    CurrentValue = false,
-    Flag = "PetsAdventureAutoClaimCrafts",
-    Callback = function(v)
-        AutoClaimCraft = v
-        if AutoClaimCraft then
-            StartManagedLoop("PetsAutoClaimCrafts", function() return AutoClaimCraft end, function()
-                local claimed = ClaimReadyCrafts()
-                if claimed > 0 then
-                    SetStatus(CraftStatusLabel, "Status", "Claimed ready slots: " .. tostring(claimed))
-                end
-                return 10
-            end, 3)
-        end
-    end,
-})
-
-CraftTab:CreateButton({
-    Name = "Buy Craft Slot",
-    Callback = function()
-        SafeInvoke("BuyCraftSlot")
-        SetStatus(CraftStatusLabel, "Status", "Buy slot requested")
-    end,
-})
+    SetBrawlerUpgradeStatus(tostring(lastReason or "nothing to upgrade"))
+    HubDebug("BrawlerUpgrade", tostring(lastReason or "nothing to upgrade"))
+    return false
 end
 
--- ============================================================
---  MERCHANT TAB
--- ============================================================
-do
-MerchantTab:CreateSection("Merchant")
-MerchantStatusLabel = MerchantTab:CreateLabel("Status: Idle")
+local function DebugBrawlerUpgradeState()
+    local _, inventory = GetBattleSlots()
+    local remoteText = PurchaseBrawlerUpgrade and (PurchaseBrawlerUpgrade.ClassName or "exists") or "missing"
+    local moduleText = BrawlerProgressionConfig and "loaded" or "missing/server-check"
+    local coins = GetCoins()
+    local powerPoints = GetPowerPoints()
+    local unlocked = 0
+    local affordable = 0
+    local blockedByCost = 0
+    local temporarilySkipped = 0
+    local costUnknown = 0
+    local maxedOrTarget = 0
+    local firstBlocked = nil
 
-local AutoMerchantSell = false
-local MerchantDelay = 20
-
-MerchantTab:CreateInput({
-    Name = "Merchant Delay (seconds)",
-    PlaceholderText = "Default: 20",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(v)
-        MerchantDelay = math.max(tonumber(v) or 20, 5)
-    end,
-})
-
-MerchantTab:CreateButton({
-    Name = "Sell All Merchant Offers",
-    Callback = function()
-        local sold = MerchantSellAllOffers()
-        SetStatus(MerchantStatusLabel, "Status", "Sell requests: " .. tostring(sold))
-    end,
-})
-
-MerchantTab:CreateToggle({
-    Name = "Auto Sell Merchant Offers",
-    CurrentValue = false,
-    Flag = "PetsAdventureAutoMerchantSell",
-    Callback = function(v)
-        AutoMerchantSell = v
-        if AutoMerchantSell then
-            StartManagedLoop("PetsAutoMerchantSell", function() return AutoMerchantSell end, function()
-                local sold = MerchantSellAllOffers()
-                if sold > 0 then
-                    SetStatus(MerchantStatusLabel, "Status", "Sell requests: " .. tostring(sold))
-                end
-                return MerchantDelay
-            end, 5)
-        end
-    end,
-})
-end
-
--- ============================================================
---  TELEPORT TAB
--- ============================================================
-do
-TeleportTab:CreateSection("Zones")
-TeleportStatusLabel = TeleportTab:CreateLabel("Status: Idle")
-
-local ZoneChoice = GetZoneOptions()[1]
-TeleportTab:CreateDropdown({
-    Name = "Zone",
-    Options = GetZoneOptions(),
-    CurrentOption = { ZoneChoice },
-    MultipleOptions = false,
-    Flag = "PetsAdventureZoneChoice",
-    Callback = function(v)
-        ZoneChoice = GetDropdownChoice(v, ZoneChoice)
-    end,
-})
-
-TeleportTab:CreateButton({
-    Name = "Teleport to Zone",
-    Callback = function()
-        local zoneId = FindZoneIdByName(ZoneChoice)
-        SafeFire("TeleportToZone", zoneId)
-        SetStatus(TeleportStatusLabel, "Status", "Teleport requested: " .. tostring(ZoneChoice))
-    end,
-})
-
-TeleportTab:CreateButton({
-    Name = "Enable PVP",
-    Callback = function()
-        SafeFire("TogglePvp")
-        SetStatus(TeleportStatusLabel, "Status", "PVP toggle requested")
-    end,
-})
-
-TeleportTab:CreateButton({
-    Name = "Enter Infinity Tower",
-    Callback = function()
-        SafeFire("EnterInfinityTower")
-        SetStatus(TeleportStatusLabel, "Status", "Tower enter requested")
-    end,
-})
-end
-
--- ============================================================
---  MACRO TAB
--- ============================================================
-do
-MacroTab:CreateSection("All-in-One Macro")
-MacroStatusLabel = MacroTab:CreateLabel("Status: Idle")
-
-local MacroRunning = false
-local MacroIncludeInventory = true
-local MacroIncludeRewards = true
-local MacroIncludeCraft = false
-local MacroTargetMode = "Best Available"
-
-MacroTab:CreateDropdown({
-    Name = "Macro Target Mode",
-    Options = { "Best Available", "Boss/Rare First", "Nearest Mob", "Nearest Resource" },
-    CurrentOption = { "Best Available" },
-    MultipleOptions = false,
-    Flag = "PetsAdventureMacroTargetMode",
-    Callback = function(v)
-        MacroTargetMode = GetDropdownChoice(v, MacroTargetMode)
-    end,
-})
-
-MacroTab:CreateToggle({
-    Name = "Include Inventory Opens",
-    CurrentValue = true,
-    Flag = "PetsAdventureMacroInventory",
-    Callback = function(v)
-        MacroIncludeInventory = v
-    end,
-})
-
-MacroTab:CreateToggle({
-    Name = "Include Rewards",
-    CurrentValue = true,
-    Flag = "PetsAdventureMacroRewards",
-    Callback = function(v)
-        MacroIncludeRewards = v
-    end,
-})
-
-MacroTab:CreateToggle({
-    Name = "Include Crafting",
-    CurrentValue = false,
-    Flag = "PetsAdventureMacroCrafting",
-    Callback = function(v)
-        MacroIncludeCraft = v
-    end,
-})
-
-MacroTab:CreateToggle({
-    Name = "PetsMax Macro",
-    CurrentValue = false,
-    Flag = "PetsAdventurePetsMaxMacro",
-    Callback = function(v)
-        MacroRunning = v
-        if MacroRunning then
-            local lastUpgrade = 0
-            local lastReward = 0
-            local lastInventory = 0
-            local lastCraft = 0
-            StartManagedLoop("PetsMaxMacro", function() return MacroRunning end, function()
-                local now = os.clock()
-
-                local target = ChooseTarget(MacroTargetMode)
-                if target then
-                    SetAllPetAction("Auto")
-                    TargetForPets(target.target)
-                    SetStatus(MacroStatusLabel, "Status", "Targeting " .. target.target.Name)
-                end
-
-                if now - lastUpgrade >= 1 then
-                    lastUpgrade = now
-                    local upgradeId = ChooseUpgrade("Best Value")
-                    if upgradeId then
-                        BuyUpgrade(upgradeId)
+    if typeof(inventory) == "table" and typeof(inventory.byId) == "table" then
+        for brawlerId, state in pairs(inventory.byId) do
+            if typeof(brawlerId) == "string" and typeof(state) == "table" and state.unlocked == true then
+                unlocked += 1
+                local costs = GetBrawlerUpgradeCost(brawlerId, state)
+                local level = math.max(1, math.floor(tonumber(state.level) or 1))
+                local maxLevel = tonumber(BrawlerProgressionConfig and BrawlerProgressionConfig.MaxLevel) or 11
+                local wantedLevel = math.clamp(math.floor(tonumber(BrawlerUpgradeTargetLevel) or maxLevel), 1, maxLevel)
+                local serverBlockReason = GetBrawlerUpgradeTemporaryBlockReason(brawlerId)
+                if serverBlockReason then
+                    temporarilySkipped += 1
+                    if not firstBlocked then
+                        firstBlocked = GetBrawlerDisplayName(brawlerId) .. " skipped: " .. tostring(serverBlockReason)
                     end
-                    if CanRebirth() then
-                        SafeInvoke("RequestRebirth")
+                elseif not costs and level < maxLevel and level < wantedLevel then
+                    costUnknown += 1
+                    affordable += 1
+                elseif CanUpgradeBrawler(brawlerId, state, BrawlerUpgradeTargetLevel) then
+                    affordable += 1
+                elseif costs and level < maxLevel and level < wantedLevel then
+                    blockedByCost += 1
+                    if not firstBlocked then
+                        firstBlocked = string.format(
+                            "%s L%d needs %d coins/%d pp",
+                            GetBrawlerDisplayName(brawlerId),
+                            level,
+                            costs.coins,
+                            costs.powerPoints
+                        )
                     end
+                else
+                    maxedOrTarget += 1
                 end
+            end
+        end
+    end
 
-                if MacroIncludeRewards and now - lastReward >= 20 then
-                    lastReward = now
-                    ClaimDailyAvailable()
-                    SafeInvoke("ClaimSocialBoost", "FavoriteBoost")
-                    SafeInvoke("ClaimSocialBoost", "GroupBoost")
-                    AutoSpinOnce()
-                    RollFountainOnce()
-                end
+    local candidateId, reason = ChooseBrawlerUpgradeCandidate(
+        BrawlerUpgradeTargetLevel
+    )
+    local candidateText = candidateId and GetBrawlerDisplayName(candidateId) or tostring(reason or "-")
+    local summary = string.format(
+        "remote=%s | module=%s | target=%d | coins=%d | pp=%d | unlocked=%d | affordable=%d | costUnknown=%d | costBlocked=%d | skipped=%d | max/target=%d | candidate=%s",
+        remoteText,
+        moduleText,
+        tonumber(BrawlerUpgradeTargetLevel) or 11,
+        coins,
+        powerPoints,
+        unlocked,
+        affordable,
+        costUnknown,
+        blockedByCost,
+        temporarilySkipped,
+        maxedOrTarget,
+        candidateText
+    )
 
-                if MacroIncludeInventory and now - lastInventory >= 10 then
-                    lastInventory = now
-                    OpenInventoryType("Egg", "HatchEggs", "All")
-                    OpenInventoryType("MysteryBox", "OpenChest", "All")
-                    UseAllPotions()
-                end
+    if firstBlocked then
+        summary = summary .. " | firstBlocked=" .. firstBlocked
+    end
 
-                if MacroIncludeCraft and now - lastCraft >= 15 then
-                    lastCraft = now
-                    ClaimReadyCrafts()
-                    local recipeId = ChooseCraftRecipe("First Affordable", nil)
-                    if recipeId then
-                        SafeInvoke("StartCraft", recipeId)
-                    end
-                end
+    HubDebug("BrawlerUpgradeDebug", summary)
+    SetBrawlerUpgradeStatus("Debug: " .. candidateText)
+    SafeNotify({
+        Title = "Brawler Upgrade Debug",
+        Content = summary,
+        Duration = 8,
+    })
+end
 
-                return 0.35
+UpgradeTab:CreateButton({
+    Name     = "DEBUG: Brawler Upgrade State",
+    Callback = function()
+        task.spawn(function()
+            DebugBrawlerUpgradeState()
+        end)
+    end,
+})
+
+UpgradeTab:CreateButton({
+    Name     = "Upgrade Brawler Batch Now",
+    Callback = function()
+        task.spawn(function()
+            RunBrawlerUpgradeBatch()
+        end)
+    end,
+})
+
+local AutoUpgradeBestBrawlers = false
+UpgradeTab:CreateToggle({
+    Name         = "Auto Upgrade Brawlers",
+    CurrentValue = false,
+    Flag         = "AutoUpgradeBestBrawlers",
+    Callback     = function(v)
+        AutoUpgradeBestBrawlers = v
+        if AutoUpgradeBestBrawlers then
+            SetBrawlerUpgradeStatus("Running")
+            StartManagedLoop("AutoUpgradeBestBrawlers", function() return AutoUpgradeBestBrawlers end, function()
+                RunBrawlerUpgradeBatch()
+                return BrawlerUpgradeDelay
             end, 2)
         else
-            SetStatus(MacroStatusLabel, "Status", "Idle")
+            SetBrawlerUpgradeStatus("Idle")
         end
     end,
 })
+
+end
+
+-- ============================================================
+--  BATTLE TAB
+-- ============================================================
+do
+BattleTab:CreateSection("Auto Battle")
+
+BattleMapChoice = "TrainingYard"
+local BattleChoiceMode = "Best Win Chance"
+BattleStatusLabel = BattleTab:CreateLabel(LastBattleStatusText)
+BattleOfferLabel = BattleTab:CreateLabel(LastBattleOfferText)
+BattleResultLabel = BattleTab:CreateLabel(LastBattleResultText)
+BattleSlotsLabel = BattleTab:CreateLabel(LastBattleSlotsText)
+
+BattleTab:CreateButton({
+    Name     = "Equip Best Battle Slots Now",
+    Callback = function()
+        local slots, inventory = GetBattleSlots()
+        local mapsOk, mapsResult = SafeInvoke(RequestBattleMaps)
+        local mapIds = mapsOk and ExtractMapIdsFromOffer(mapsResult) or {}
+        local chosenMap, bestSlots = ChooseBattleMapAndSlots(mapIds, slots, inventory, BattleChoiceMode, BattleMapChoice, true)
+        if typeof(chosenMap) == "string" then
+            LastBattleRoleMap = chosenMap
+        end
+        if typeof(bestSlots) == "table" then
+            if SafeFire(SetSelectedBattleSlots, bestSlots) then
+                InvalidateInventorySnapshot()
+            end
+            SetBattleOffer(mapIds, chosenMap)
+            SetBattleSlots(bestSlots)
+            SetBattleStatus("Equipped best slots for " .. tostring(chosenMap))
+        end
+    end,
+})
+
+BattleTab:CreateButton({
+    Name     = "Refresh Battle Status",
+    Callback = function()
+        RefreshBattleStatus()
+    end,
+})
+
+BattleTab:CreateDropdown({
+    Name    = "Manual Battle Map",
+    Options = {
+        "TrainingYard", "CoinCave", "GemTunnel", "PowerPit",
+        "ScrapYard", "TrophyTrail", "HeistRoom", "AmbushValley",
+        "BossVault", "WildZone", "SurvivalPit", "StarVault",
+    },
+    CurrentOption = { "TrainingYard" },
+    MultipleOptions = false,
+    Flag    = "BattleMapChoice",
+    Callback = function(v)
+        BattleMapChoice = GetDropdownChoice(v, BattleMapChoice)
+        if typeof(BattleMapChoice) == "string" then
+            LastBattleRoleMap = BattleMapChoice
+        end
+    end,
+})
+
+BattleTab:CreateDropdown({
+    Name    = "Battle Choice Mode",
+    Options = { "Best Win Chance", "Best Reward", "Manual Dropdown" },
+    CurrentOption = { "Best Win Chance" },
+    MultipleOptions = false,
+    Flag    = "BattleChoiceMode",
+    Callback = function(v)
+        BattleChoiceMode = GetDropdownChoice(v, BattleChoiceMode)
+    end,
+})
+
+local BattleDelay = 5
+BattleTab:CreateInput({
+    Name                = "Battle Loop Delay (seconds)",
+    PlaceholderText     = "Default: 5",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        BattleDelay = math.max(tonumber(v) or 5, 0.25)
+    end,
+})
+
+local AutoBattle = false
+BattleTab:CreateToggle({
+    Name         = "Auto Battle Loop (Best Slots)",
+    CurrentValue = false,
+    Flag         = "AutoBattle",
+    Callback     = function(v)
+        AutoBattle = v
+        if AutoBattle then
+            StartManagedLoop("AutoBattle", function() return AutoBattle end, function()
+                local ok, waitOverride = RequestAndStartSmartBattle(BattleChoiceMode, BattleMapChoice)
+                if not ok then
+                    return BattleDelay
+                end
+                if type(waitOverride) == "number" then
+                    return waitOverride
+                end
+                return BattleDelay
+            end, 3)
+        end
+    end,
+})
+
+BattleTab:CreateSection("Auto Open Boxes")
+
+-- Deferred reward IDs are generated by the server and must come from GetBattleState.
+-- This opens Starr/Chaos/Angelic/Demonic/Nova/Ranked drops only when the server
+-- reports pending IDs in deferredBattleRewards.
+
+local function OpenAllPendingBoxes()
+    local stateOk, state = SafeInvoke(GetBattleState)
+    if stateOk and typeof(state) == "table" and typeof(state.completedResult) == "table" then
+        SetBattleResult(state.completedResult)
+        SetBattleStatus("Collecting battle result")
+        local ackOk, ackResult = SafeInvoke(AcknowledgeBattleResult, { deferBoxRewards = true })
+        InvalidateInventorySnapshot()
+        if ackOk and typeof(ackResult) == "table" then
+            local opened = OpenAllDeferredBattleRewards(ackResult.battleState or ackResult)
+            return opened == true
+        end
+        return ackOk
+    end
+
+    local opened = OpenAllDeferredBattleRewards(state)
+    return opened == true
+end
+
+local AutoOpenBoxes = false
+local OpenBoxDelay = 3
+BattleTab:CreateInput({
+    Name                = "Box Check Delay (seconds)",
+    PlaceholderText     = "Default: 3",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        OpenBoxDelay = math.max(tonumber(v) or 3, 0.5)
+    end,
+})
+BattleTab:CreateToggle({
+    Name         = "Auto Open Boxes",
+    CurrentValue = false,
+    Flag         = "AutoOpenBoxes",
+    Callback     = function(v)
+        AutoOpenBoxes = v
+        if AutoOpenBoxes then
+            StartManagedLoop("AutoOpenBoxes", function() return AutoOpenBoxes end, function()
+                OpenAllPendingBoxes()
+                return OpenBoxDelay
+            end, 3)
+        end
+    end,
+})
+
+end
+
+
+-- ============================================================
+--  DICE TAB
+-- ============================================================
+do
+DiceTab:CreateSection("Auto Roll Dice")
+
+local DiceKind = "regular"
+DiceTab:CreateDropdown({
+    Name    = "Dice Type",
+    Options = { "regular", "golden", "mythical" },
+    CurrentOption = { "regular" },
+    MultipleOptions = false,
+    Flag    = "DiceKind",
+    Callback = function(v)
+        DiceKind = GetDropdownChoice(v, DiceKind)
+    end,
+})
+
+local RollDelay = 1
+DiceTab:CreateInput({
+    Name                = "Roll Delay (seconds)",
+    PlaceholderText     = "Default: 1",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        local n = tonumber(v)
+        if n and n > 0 then
+            RollDelay = n
+        end
+    end,
+})
+
+local AutoRoll = false
+DiceTab:CreateToggle({
+    Name         = "Auto Roll Dice",
+    CurrentValue = false,
+    Flag         = "AutoRoll",
+    Callback     = function(v)
+        AutoRoll = v
+        if AutoRoll then
+            StartManagedLoop("AutoRoll", function() return AutoRoll end, function()
+                SmartRollDice(DiceKind)
+                return RollDelay
+            end, 1)
+        end
+    end,
+})
+
+DiceTab:CreateSection("Multi-Roll")
+
+local AutoRollAll = false
+DiceTab:CreateToggle({
+    Name         = "Auto Roll All Types",
+    CurrentValue = false,
+    Flag         = "AutoRollAll",
+    Callback     = function(v)
+        AutoRollAll = v
+        if AutoRollAll then
+            StartManagedLoop("AutoRollAll", function() return AutoRollAll end, function()
+                if GetDiceCount("regular") > 0 then
+                    SmartRollDice("regular")
+                    task.wait(0.5)
+                end
+                if GetDiceCount("golden") > 0 then
+                    SmartRollDice("golden")
+                    task.wait(0.5)
+                end
+                if GetDiceCount("mythical") > 0 then
+                    SmartRollDice("mythical")
+                end
+                return RollDelay
+            end, 1)
+        end
+    end,
+})
+
+end
+
+-- ============================================================
+--  RANKED TAB
+-- ============================================================
+do
+RankedTab:CreateSection("Auto Ranked")
+
+local AutoRanked = false
+RankedStatusLabel = RankedTab:CreateLabel(LastRankedStatusText)
+RankedResultLabel = RankedTab:CreateLabel(LastRankedResultText)
+
+RankedTab:CreateDropdown({
+    Name    = "Ranked Brawler Priority",
+    Options = { "Best Overall", "Rotate Top 3", "Rotate Top 5", "Selected Brawler", "Highest Level", "Highest Trophies" },
+    CurrentOption = { "Best Overall" },
+    MultipleOptions = false,
+    Flag    = "RankedBrawlerMode",
+    Callback = function(v)
+        RankedBrawlerMode = GetDropdownChoice(v, RankedBrawlerMode)
+    end,
+})
+
+RankedTab:CreateToggle({
+    Name         = "Auto Roll Ranked Reward",
+    CurrentValue = RuntimeSettings.AutoRankedRewardRoll,
+    Flag         = "AutoRankedRewardRoll",
+    Callback     = function(v)
+        RuntimeSettings.AutoRankedRewardRoll = v
+    end,
+})
+
+RankedTab:CreateInput({
+    Name                = "Ranked Loop Delay (seconds)",
+    PlaceholderText     = "Default: 10",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        local n = tonumber(v)
+        if n and n > 0 then
+            RuntimeSettings.RankedDelay = math.max(n, 1)
+        end
+    end,
+})
+
+RankedTab:CreateInput({
+    Name                = "Ranked Round Pace (seconds)",
+    PlaceholderText     = "Default: 4.5",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        local n = tonumber(v)
+        if n and n > 0 then
+            RuntimeSettings.RankedRoundDelay = math.clamp(n, 0.75, 12)
+        end
+    end,
+})
+
+RankedTab:CreateInput({
+    Name                = "Ranked Complete Cooldown (seconds)",
+    PlaceholderText     = "Default: 10",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        local n = tonumber(v)
+        if n and n > 0 then
+            RuntimeSettings.RankedPostMatchDelay = math.max(n, 1)
+        end
+    end,
+})
+
+RankedTab:CreateButton({
+    Name     = "Play Ranked Match Once",
+    Callback = function()
+        task.spawn(function()
+            AutoPlayRankedMatch(RuntimeSettings.AutoRankedRewardRoll)
+        end)
+    end,
+})
+
+RankedTab:CreateToggle({
+    Name         = "Auto Ranked Loop",
+    CurrentValue = false,
+    Flag         = "AutoRanked",
+    Callback     = function(v)
+        AutoRanked = v
+        if AutoRanked then
+            StartManagedLoop("AutoRanked", function() return AutoRanked end, function()
+                AutoPlayRankedMatch(RuntimeSettings.AutoRankedRewardRoll)
+                return math.max(RuntimeSettings.RankedDelay, RuntimeSettings.RankedPostMatchDelay)
+            end, 5)
+        end
+    end,
+})
+
+end
+
+-- ============================================================
+--  CODES TAB
+-- ============================================================
+do
+CodesTab:CreateSection("Auto Redeem Codes")
+
+local KnownCodes = {}
+local CodeSourceUrl = ""
+
+local function AddCode(codeList, seen, code)
+    if typeof(code) ~= "string" then
+        return
+    end
+
+    code = code:match("^%s*(.-)%s*$")
+    if code == "" or seen[code] then
+        return
+    end
+
+    seen[code] = true
+    codeList[#codeList + 1] = code
+end
+
+local function ExtractCodesFromText(text, codeList, seen)
+    if typeof(text) ~= "string" then
+        return
+    end
+
+    for code in string.gmatch(text, "[A-Za-z0-9_%-]+") do
+        if #code >= 3 and #code <= 40 then
+            AddCode(codeList, seen, code)
+        end
+    end
+end
+
+local function ExtractCodesFromTable(value, codeList, seen, depth)
+    if typeof(value) ~= "table" or depth > 4 then
+        return
+    end
+
+    for key, child in pairs(value) do
+        local keyText = tostring(key):lower()
+        if typeof(child) == "string" then
+            if keyText:find("code") or keyText:find("redeem") or keyText:find("promo") or keyText:find("name") then
+                AddCode(codeList, seen, child)
+            end
+        elseif typeof(child) == "table" then
+            ExtractCodesFromTable(child, codeList, seen, depth + 1)
+        end
+    end
+end
+
+local function GetCodesFromGameModules(codeList, seen)
+    for _, module in ipairs(ReplicatedStorage:GetDescendants()) do
+        if module:IsA("ModuleScript") then
+            local name = module.Name:lower()
+            if name:find("code") or name:find("redeem") or name:find("promo") then
+                local ok, result = pcall(require, module)
+                if ok then
+                    if typeof(result) == "table" then
+                        ExtractCodesFromTable(result, codeList, seen, 0)
+                    elseif typeof(result) == "string" then
+                        ExtractCodesFromText(result, codeList, seen)
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function GetCodesFromUrl(codeList, seen)
+    if CodeSourceUrl == "" then
+        return
+    end
+
+    local ok, body = pcall(function()
+        return game:HttpGet(CodeSourceUrl)
+    end)
+    if ok and typeof(body) == "string" then
+        ExtractCodesFromText(body, codeList, seen)
+    end
+end
+
+local function BuildCodeList()
+    local codeList = {}
+    local seen = {}
+
+    for _, code in ipairs(KnownCodes) do
+        AddCode(codeList, seen, code)
+    end
+
+    GetCodesFromGameModules(codeList, seen)
+    GetCodesFromUrl(codeList, seen)
+    return codeList
+end
+
+local function RedeemCodeAndNotify(code)
+    local ok, result = SafeInvoke(RedeemCode, code)
+    if ok and typeof(result) == "table" and result.ok == true then
+        SafeNotify({
+            Title   = "Code Redeemed",
+            Content = "Successfully redeemed: " .. code,
+            Duration = 3,
+        })
+        return true
+    end
+
+    local msg = "Failed"
+    if typeof(result) == "table" and result.message then
+        msg = result.message
+    end
+    SafeNotify({
+        Title   = "Code Failed",
+        Content = code .. " - " .. msg,
+        Duration = 3,
+    })
+    return false
+end
+
+CodesTab:CreateInput({
+    Name                = "Enter Codes (comma-separated)",
+    PlaceholderText     = "code1, code2, code3",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        KnownCodes = {}
+        for code in string.gmatch(v, "[^,%s]+") do
+            table.insert(KnownCodes, code)
+        end
+    end,
+})
+
+CodesTab:CreateInput({
+    Name                = "Code List URL",
+    PlaceholderText     = "raw GitHub txt/json/list URL...",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        CodeSourceUrl = tostring(v or ""):match("^%s*(.-)%s*$")
+    end,
+})
+
+CodesTab:CreateButton({
+    Name     = "Redeem All Codes",
+    Callback = function()
+        local codes = BuildCodeList()
+        if #codes <= 0 then
+            SafeNotify({
+                Title   = "No Codes",
+                Content = "No manual, module, or URL codes found.",
+                Duration = 3,
+            })
+            return
+        end
+
+        SafeNotify({
+            Title   = "Codes",
+            Content = "Trying " .. tostring(#codes) .. " code(s).",
+            Duration = 3,
+        })
+
+        for _, code in ipairs(codes) do
+            RedeemCodeAndNotify(code)
+            task.wait(1)
+        end
+    end,
+})
+
+CodesTab:CreateInput({
+    Name                = "Redeem Single Code",
+    PlaceholderText     = "Enter code...",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        if v == "" then return end
+        RedeemCodeAndNotify(v)
+    end,
+})
+
+end
+
+-- ============================================================
+--  MACRO TAB - All-in-one macro
+-- ============================================================
+do
+MacroTab:CreateSection("BrawlMax Macro")
+MacroTab:CreateLabel("Click -> Upgrades -> Rebirth -> Battle -> Dice")
+
+local MacroRunning       = false
+local MacroRebirthDelay  = 60
+local MacroLastRebirth   = 0
+local MacroLastUpgrade   = 0
+local MacroLastDice      = 0
+local MacroLastBattle    = 0
+local MacroLastReward    = 0
+local MacroDiceEnabled   = true
+local MacroBattleEnabled = true
+local MacroMapChoice     = "TrainingYard"
+local MacroBattleChoiceMode = "Best Win Chance"
+local NormalFarmMacroRunning = false
+local BattleFarmMacroRunning = false
+local RankedFarmMacroRunning = false
+
+local function StopOtherMacros(activeName)
+    if activeName ~= "BrawlMaxMacro" then
+        MacroRunning = false
+    end
+    if activeName ~= "NormalFarmMacro" then
+        NormalFarmMacroRunning = false
+    end
+    if activeName ~= "BattleFarmMacro" then
+        BattleFarmMacroRunning = false
+    end
+    if activeName ~= "RankedFarmMacro" then
+        RankedFarmMacroRunning = false
+    end
+end
+
+local function MacroBuyMaxUpgrades(isRunning)
+    local snapshot = GetUpgradeSnapshot()
+    for _, entry in ipairs(UpgradeList) do
+        if not isRunning() then break end
+        SmartPurchaseUpgrade(entry[1], "max", snapshot)
+        task.wait(0.05)
+    end
+end
+
+local function MacroRollAvailableDice()
+    if GetDiceCount("regular") > 0 then
+        SmartRollDice("regular")
+        task.wait(0.1)
+    end
+    if GetDiceCount("golden") > 0 then
+        SmartRollDice("golden")
+        task.wait(0.1)
+    end
+    if GetDiceCount("mythical") > 0 then
+        SmartRollDice("mythical")
+        task.wait(0.1)
+    end
+end
+
+local function MacroClaimRewards()
+    SafeInvoke(ClaimDailyReward)
+    ClaimAllKnownAchievements(0.02)
+    SafeInvoke(ClaimTrophyRoadRankUpReward)
+    SafeInvoke(RedeemClickerBonus)
+end
+
+local function MacroOpenBoxes()
+    local stateOk, state = SafeInvoke(GetBattleState)
+    if stateOk and typeof(state) == "table" and typeof(state.completedResult) == "table" then
+        local ackOk, ackResult = SafeInvoke(AcknowledgeBattleResult, { deferBoxRewards = true })
+        InvalidateInventorySnapshot()
+        if ackOk and typeof(ackResult) == "table" then
+            OpenAllDeferredBattleRewards(ackResult.battleState or ackResult)
+        end
+    elseif stateOk then
+        OpenAllDeferredBattleRewards(state)
+    end
+end
+
+MacroTab:CreateInput({
+    Name                = "Macro Rebirth Interval (s)",
+    PlaceholderText     = "Default: 60",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v) MacroRebirthDelay = math.max(tonumber(v) or 60, 1) end,
+})
+
+MacroTab:CreateToggle({
+    Name         = "Include Dice Rolls",
+    CurrentValue = true,
+    Flag         = "MacroDice",
+    Callback     = function(v) MacroDiceEnabled = v end,
+})
+
+MacroTab:CreateToggle({
+    Name         = "Include Auto Battle",
+    CurrentValue = true,
+    Flag         = "MacroBattle",
+    Callback     = function(v) MacroBattleEnabled = v end,
+})
+
+MacroTab:CreateDropdown({
+    Name    = "Macro Battle Map",
+    Options = {
+        "TrainingYard", "CoinCave", "GemTunnel", "PowerPit",
+        "ScrapYard", "TrophyTrail", "HeistRoom", "AmbushValley",
+        "BossVault", "WildZone", "SurvivalPit", "StarVault",
+    },
+    CurrentOption = { "TrainingYard" },
+    MultipleOptions = false,
+    Flag    = "MacroMapChoice",
+    Callback = function(v) MacroMapChoice = GetDropdownChoice(v, MacroMapChoice) end,
+})
+
+MacroTab:CreateDropdown({
+    Name    = "Macro Battle Choice Mode",
+    Options = { "Best Win Chance", "Best Reward", "Manual Dropdown" },
+    CurrentOption = { "Best Win Chance" },
+    MultipleOptions = false,
+    Flag    = "MacroBattleChoiceMode",
+    Callback = function(v) MacroBattleChoiceMode = GetDropdownChoice(v, MacroBattleChoiceMode) end,
+})
+
+MacroTab:CreateToggle({
+    Name         = "BrawlMax Macro",
+    CurrentValue = false,
+    Flag         = "BrawlMaxMacro",
+    Callback     = function(v)
+        MacroRunning     = v
+        MacroLastRebirth = os.clock()
+        MacroLastUpgrade = 0
+        MacroLastDice    = 0
+        MacroLastBattle  = 0
+        MacroLastReward  = 0
+
+        if MacroRunning then
+            StopOtherMacros("BrawlMaxMacro")
+            StartManagedLoop("BrawlMaxMacro", function() return MacroRunning end, function()
+                local now = os.clock()
+
+                -- 1. Buy all upgrades (max)
+                if now - MacroLastUpgrade >= 0.5 then
+                    MacroLastUpgrade = now
+                    MacroBuyMaxUpgrades(function() return MacroRunning end)
+                end
+
+                -- 2. Tap
+                SafeFire(ClickerTap)
+
+                -- 3. Rebirth on timer
+                if now - MacroLastRebirth >= MacroRebirthDelay then
+                    SmartPurchaseRebirth()
+                    MacroLastRebirth = now
+                    task.wait(0.3)
+                end
+
+                -- 4. Roll dice
+                if MacroDiceEnabled and now - MacroLastDice >= 0.5 then
+                    MacroLastDice = now
+                    MacroRollAvailableDice()
+                end
+
+                -- 5. Battle cycle
+                if MacroBattleEnabled and now - MacroLastBattle >= 3 then
+                    MacroLastBattle = now
+                    RequestAndStartSmartBattle(MacroBattleChoiceMode, MacroMapChoice)
+                    -- Open boxes from completed battle result immediately
+                    MacroOpenBoxes()
+                end
+
+                -- 6. Claim rewards
+                if now - MacroLastReward >= 30 then
+                    MacroLastReward = now
+                    MacroClaimRewards()
+                end
+
+                return 0.1
+            end, 1)
+        end
+    end,
+})
+
+MacroTab:CreateSection("Focused Macros")
+
+MacroTab:CreateToggle({
+    Name         = "Normal Farm Macro",
+    CurrentValue = false,
+    Flag         = "NormalFarmMacro",
+    Callback     = function(v)
+        NormalFarmMacroRunning = v
+        local lastRebirth = os.clock()
+        local lastUpgrade = 0
+        local lastDice = 0
+        local lastReward = 0
+
+        if NormalFarmMacroRunning then
+            StopOtherMacros("NormalFarmMacro")
+            StartManagedLoop("NormalFarmMacro", function() return NormalFarmMacroRunning end, function()
+                local now = os.clock()
+
+                if now - lastUpgrade >= 0.5 then
+                    lastUpgrade = now
+                    MacroBuyMaxUpgrades(function() return NormalFarmMacroRunning end)
+                end
+
+                SafeFire(ClickerTap)
+
+                if now - lastRebirth >= MacroRebirthDelay then
+                    SmartPurchaseRebirth()
+                    lastRebirth = now
+                    task.wait(0.3)
+                end
+
+                if MacroDiceEnabled and now - lastDice >= 0.5 then
+                    lastDice = now
+                    MacroRollAvailableDice()
+                end
+
+                if now - lastReward >= 30 then
+                    lastReward = now
+                    MacroClaimRewards()
+                end
+
+                return 0.1
+            end, 1)
+        end
+    end,
+})
+
+MacroTab:CreateToggle({
+    Name         = "Battle Farm Macro",
+    CurrentValue = false,
+    Flag         = "BattleFarmMacro",
+    Callback     = function(v)
+        BattleFarmMacroRunning = v
+        local lastUpgrade = 0
+        local lastBattle = 0
+        local lastReward = 0
+
+        if BattleFarmMacroRunning then
+            StopOtherMacros("BattleFarmMacro")
+            StartManagedLoop("BattleFarmMacro", function() return BattleFarmMacroRunning end, function()
+                local now = os.clock()
+
+                if now - lastUpgrade >= 0.5 then
+                    lastUpgrade = now
+                    MacroBuyMaxUpgrades(function() return BattleFarmMacroRunning end)
+                end
+
+                SafeFire(ClickerTap)
+
+                if now - lastBattle >= 3 then
+                    lastBattle = now
+                    RequestAndStartSmartBattle(MacroBattleChoiceMode, MacroMapChoice)
+                    MacroOpenBoxes()
+                end
+
+                if now - lastReward >= 30 then
+                    lastReward = now
+                    MacroClaimRewards()
+                end
+
+                return 0.1
+            end, 1)
+        end
+    end,
+})
+
+MacroTab:CreateToggle({
+    Name         = "Ranked Farm Macro",
+    CurrentValue = false,
+    Flag         = "RankedFarmMacro",
+    Callback     = function(v)
+        RankedFarmMacroRunning = v
+        local lastReward = 0
+
+        if RankedFarmMacroRunning then
+            StopOtherMacros("RankedFarmMacro")
+            StartManagedLoop("RankedFarmMacro", function() return RankedFarmMacroRunning end, function()
+                local now = os.clock()
+
+                AutoPlayRankedMatch(RuntimeSettings.AutoRankedRewardRoll)
+
+                if now - lastReward >= 30 then
+                    lastReward = now
+                    MacroClaimRewards()
+                end
+
+                return math.max(RuntimeSettings.RankedDelay, RuntimeSettings.RankedPostMatchDelay)
+            end, 5)
+        end
+    end,
+})
+
 end
 
 -- ============================================================
 --  MISC TAB
 -- ============================================================
-do
-MiscTab:CreateSection("Sync / Debug")
-
-MiscTab:CreateButton({
-    Name = "Request All Sync",
-    Callback = function()
-        RequestAllSync()
-        SafeNotify({ Title = "Sync", Content = "Requested game data sync.", Duration = 2 })
-    end,
-})
-
-MiscTab:CreateButton({
-    Name = "Debug Cached Data",
-    Callback = function()
-        local text = string.format(
-            "Silver=%d Gold=%d Diamonds=%d | inv=%d pets=%d equipped=%d rebirth=%d",
-            GetCurrency("Silver"),
-            GetCurrency("Gold"),
-            GetCurrency("Diamonds"),
-            typeof(DataCache.Inventory) == "table" and #DataCache.Inventory or 0,
-            typeof(PetDataCache.Owned) == "table" and #PetDataCache.Owned or 0,
-            typeof(PetDataCache.Equipped) == "table" and #PetDataCache.Equipped or 0,
-            tonumber(DataCache.RebirthCount) or 0
-        )
-        HubDebug("Cache", text)
-        SafeNotify({ Title = "Cached Data", Content = text, Duration = 6 })
-    end,
-})
-
 MiscTab:CreateSection("Anti-Idle")
+
 if getconnections then
     for _, c in pairs(getconnections(player.Idled)) do
-        if c.Disable then
-            c:Disable()
-        elseif c.Disconnect then
-            c:Disconnect()
-        end
+        if c.Disable then c:Disable() elseif c.Disconnect then c:Disconnect() end
     end
 else
     player.Idled:Connect(function()
-        VirtualUser:Button2Down(Vector2.new(0, 0), Workspace.CurrentCamera.CFrame)
+        VirtualUser:Button2Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
         task.wait(1)
-        VirtualUser:Button2Up(Vector2.new(0, 0), Workspace.CurrentCamera.CFrame)
+        VirtualUser:Button2Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
     end)
 end
-MiscTab:CreateLabel("Anti-idle is active automatically")
-end
 
+MiscTab:CreateLabel("Anti-idle is active automatically")
+
+MiscTab:CreateSection("Auto Battle Settings (Server)")
+
+MiscTab:CreateButton({
+    Name     = "Set Auto Battle Mode: Best Win Chance",
+    Callback = function()
+        SafeInvoke(SetPlayerSettings, { autoBattleMode = "winChance" })
+        SafeNotify({ Title = "Settings", Content = "Auto Battle mode set to Win Chance", Duration = 2 })
+    end,
+})
+
+MiscTab:CreateButton({
+    Name     = "Set Auto Battle Mode: Best Map",
+    Callback = function()
+        SafeInvoke(SetPlayerSettings, { autoBattleMode = "bestMap" })
+        SafeNotify({ Title = "Settings", Content = "Auto Battle mode set to Best Map", Duration = 2 })
+    end,
+})
+
+MiscTab:CreateButton({
+    Name     = "Enable Server Auto Battle",
+    Callback = function()
+        SafeInvoke(SetPlayerSettings, { autoBattleEnabled = true })
+        player:SetAttribute("AutoBattleEnabled", true)
+        SafeNotify({ Title = "Settings", Content = "Server Auto Battle enabled", Duration = 2 })
+    end,
+})
+
+MiscTab:CreateButton({
+    Name     = "Enable Server Auto Collect",
+    Callback = function()
+        SafeInvoke(SetPlayerSettings, { autoBattleAutoCollectEnabled = true })
+        player:SetAttribute("AutoBattleAutoCollectActive", true)
+        SafeNotify({ Title = "Settings", Content = "Server Auto Collect enabled", Duration = 2 })
+    end,
+})
+
+MiscTab:CreateSection("Quick Actions")
+
+MiscTab:CreateButton({
+    Name     = "Force Collect Battle Result",
+    Callback = function()
+        local state = RefreshBattleStatus()
+        local ok, result = SafeInvoke(AcknowledgeBattleResult, { deferBoxRewards = true })
+        if ok and typeof(result) == "table" and result.ok == true then
+            if typeof(state) == "table" and typeof(state.completedResult) == "table" then
+                SetBattleResult(state.completedResult)
+            end
+            OpenAllDeferredBattleRewards(result.battleState or result)
+            SetBattleStatus("Collected + opened deferred rewards")
+            SafeNotify({ Title = "Collected", Content = "Battle rewards collected and deferred rewards opened.", Duration = 2 })
+        else
+            SafeNotify({ Title = "No Result", Content = "No battle result to collect", Duration = 2 })
+        end
+    end,
+})
+
+MiscTab:CreateButton({
+    Name     = "Claim Daily Reward Now",
+    Callback = function()
+        SafeInvoke(ClaimDailyReward)
+        SafeNotify({ Title = "Daily", Content = "Claimed daily reward", Duration = 2 })
+    end,
+})
+
+MiscTab:CreateButton({
+    Name     = "Claim All Achievements Now",
+    Callback = function()
+        ClaimAllKnownAchievements(0.05)
+        SafeNotify({ Title = "Achievements", Content = "Attempted to claim achievements", Duration = 2 })
+    end,
+})
+
+MiscTab:CreateButton({
+    Name     = "Claim Trophy Road Now",
+    Callback = function()
+        for i = 1, 10 do
+            SafeInvoke(ClaimTrophyRoadRankUpReward)
+            task.wait(0.3)
+        end
+        SafeNotify({ Title = "Trophy Road", Content = "Attempted to claim trophy road rewards", Duration = 2 })
+    end,
+})
+
+-- Load saved config
 if Rayfield and type(Rayfield.LoadConfiguration) == "function" then
     local ok, err = pcall(function()
         Rayfield:LoadConfiguration()
@@ -1901,4 +3161,3 @@ if Rayfield and type(Rayfield.LoadConfiguration) == "function" then
         HubWarn("LoadConfiguration", err)
     end
 end
-
