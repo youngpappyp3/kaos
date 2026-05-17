@@ -132,6 +132,29 @@ local MIN_LOOP_WAIT = 0.03
 local INVENTORY_CACHE_SECONDS = 1
 local UPGRADE_CACHE_SECONDS = 0.25
 
+local ErrorCooldown = {}
+
+local function HubWarn(context, err)
+    local now = os.clock()
+    local key = tostring(context or "Hub")
+    if ErrorCooldown[key] and now - ErrorCooldown[key] < 4 then
+        return
+    end
+    ErrorCooldown[key] = now
+    warn("[BrawlRNG Hub] " .. key .. ": " .. tostring(err))
+end
+
+local function SafeNotify(data)
+    if Rayfield and type(Rayfield.Notify) == "function" then
+        local ok, err = pcall(function()
+            Rayfield:Notify(data)
+        end)
+        if not ok then
+            HubWarn("Notify", err)
+        end
+    end
+end
+
 local function InvalidateInventorySnapshot()
     InventorySnapshotCache = nil
     InventorySnapshotCacheTime = 0
@@ -147,7 +170,9 @@ local function StartManagedLoop(name, isRunning, tickFn, errDelay)
     ActiveLoops[name] = true
     task.spawn(function()
         while isRunning() do
-            local ok, waitTime = pcall(tickFn)
+            local ok, waitTime = xpcall(tickFn, function(err)
+                return tostring(err) .. "\n" .. debug.traceback()
+            end)
             if ok then
                 if type(waitTime) == "number" and waitTime > 0 then
                     task.wait(math.max(waitTime, MIN_LOOP_WAIT))
@@ -155,6 +180,7 @@ local function StartManagedLoop(name, isRunning, tickFn, errDelay)
                     task.wait(MIN_LOOP_WAIT)
                 end
             else
+                HubWarn("Loop " .. tostring(name), waitTime)
                 task.wait(math.max(tonumber(errDelay) or 1, MIN_LOOP_WAIT))
             end
         end
@@ -1479,9 +1505,7 @@ AutoTab:CreateToggle({
     Flag         = "ServerAutoClicker",
     Callback     = function(v)
         ServerAutoClicker = v
-        pcall(function()
-            SetAutoClickerEnabled:InvokeServer(v)
-        end)
+        SafeInvoke(SetAutoClickerEnabled, v)
     end,
 })
 
@@ -1524,7 +1548,7 @@ AutoTab:CreateToggle({
         AutoClaimDaily = v
         if AutoClaimDaily then
             StartManagedLoop("AutoClaimDaily", function() return AutoClaimDaily end, function()
-                ClaimDailyReward:InvokeServer()
+                SafeInvoke(ClaimDailyReward)
                 return 30
             end, 5)
         end
@@ -1556,7 +1580,7 @@ AutoTab:CreateToggle({
         AutoClaimTrophyRoad = v
         if AutoClaimTrophyRoad then
             StartManagedLoop("AutoClaimTrophyRoad", function() return AutoClaimTrophyRoad end, function()
-                ClaimTrophyRoadRankUpReward:InvokeServer()
+                SafeInvoke(ClaimTrophyRoadRankUpReward)
                 return 15
             end, 5)
         end
@@ -2206,7 +2230,7 @@ end
 local function RedeemCodeAndNotify(code)
     local ok, result = SafeInvoke(RedeemCode, code)
     if ok and typeof(result) == "table" and result.ok == true then
-        Rayfield:Notify({
+        SafeNotify({
             Title   = "Code Redeemed",
             Content = "Successfully redeemed: " .. code,
             Duration = 3,
@@ -2218,7 +2242,7 @@ local function RedeemCodeAndNotify(code)
     if typeof(result) == "table" and result.message then
         msg = result.message
     end
-    Rayfield:Notify({
+    SafeNotify({
         Title   = "Code Failed",
         Content = code .. " - " .. msg,
         Duration = 3,
@@ -2252,7 +2276,7 @@ CodesTab:CreateButton({
     Callback = function()
         local codes = BuildCodeList()
         if #codes <= 0 then
-            Rayfield:Notify({
+            SafeNotify({
                 Title   = "No Codes",
                 Content = "No manual, module, or URL codes found.",
                 Duration = 3,
@@ -2260,7 +2284,7 @@ CodesTab:CreateButton({
             return
         end
 
-        Rayfield:Notify({
+        SafeNotify({
             Title   = "Codes",
             Content = "Trying " .. tostring(#codes) .. " code(s).",
             Duration = 3,
@@ -2344,9 +2368,9 @@ local function MacroRollAvailableDice()
 end
 
 local function MacroClaimRewards()
-    pcall(function() ClaimDailyReward:InvokeServer() end)
+    SafeInvoke(ClaimDailyReward)
     ClaimAllKnownAchievements(0.02)
-    pcall(function() ClaimTrophyRoadRankUpReward:InvokeServer() end)
+    SafeInvoke(ClaimTrophyRoadRankUpReward)
     SafeInvoke(RedeemClickerBonus)
 end
 
@@ -2601,42 +2625,34 @@ MiscTab:CreateSection("Auto Battle Settings (Server)")
 MiscTab:CreateButton({
     Name     = "Set Auto Battle Mode: Best Win Chance",
     Callback = function()
-        pcall(function()
-            SetPlayerSettings:InvokeServer({ autoBattleMode = "winChance" })
-        end)
-        Rayfield:Notify({ Title = "Settings", Content = "Auto Battle mode set to Win Chance", Duration = 2 })
+        SafeInvoke(SetPlayerSettings, { autoBattleMode = "winChance" })
+        SafeNotify({ Title = "Settings", Content = "Auto Battle mode set to Win Chance", Duration = 2 })
     end,
 })
 
 MiscTab:CreateButton({
     Name     = "Set Auto Battle Mode: Best Map",
     Callback = function()
-        pcall(function()
-            SetPlayerSettings:InvokeServer({ autoBattleMode = "bestMap" })
-        end)
-        Rayfield:Notify({ Title = "Settings", Content = "Auto Battle mode set to Best Map", Duration = 2 })
+        SafeInvoke(SetPlayerSettings, { autoBattleMode = "bestMap" })
+        SafeNotify({ Title = "Settings", Content = "Auto Battle mode set to Best Map", Duration = 2 })
     end,
 })
 
 MiscTab:CreateButton({
     Name     = "Enable Server Auto Battle",
     Callback = function()
-        pcall(function()
-            SetPlayerSettings:InvokeServer({ autoBattleEnabled = true })
-        end)
+        SafeInvoke(SetPlayerSettings, { autoBattleEnabled = true })
         player:SetAttribute("AutoBattleEnabled", true)
-        Rayfield:Notify({ Title = "Settings", Content = "Server Auto Battle enabled", Duration = 2 })
+        SafeNotify({ Title = "Settings", Content = "Server Auto Battle enabled", Duration = 2 })
     end,
 })
 
 MiscTab:CreateButton({
     Name     = "Enable Server Auto Collect",
     Callback = function()
-        pcall(function()
-            SetPlayerSettings:InvokeServer({ autoBattleAutoCollectEnabled = true })
-        end)
+        SafeInvoke(SetPlayerSettings, { autoBattleAutoCollectEnabled = true })
         player:SetAttribute("AutoBattleAutoCollectActive", true)
-        Rayfield:Notify({ Title = "Settings", Content = "Server Auto Collect enabled", Duration = 2 })
+        SafeNotify({ Title = "Settings", Content = "Server Auto Collect enabled", Duration = 2 })
     end,
 })
 
@@ -2653,9 +2669,9 @@ MiscTab:CreateButton({
             end
             OpenAllDeferredBattleRewards(result.battleState or result)
             SetBattleStatus("Collected + opened deferred rewards")
-            Rayfield:Notify({ Title = "Collected", Content = "Battle rewards collected and deferred rewards opened.", Duration = 2 })
+            SafeNotify({ Title = "Collected", Content = "Battle rewards collected and deferred rewards opened.", Duration = 2 })
         else
-            Rayfield:Notify({ Title = "No Result", Content = "No battle result to collect", Duration = 2 })
+            SafeNotify({ Title = "No Result", Content = "No battle result to collect", Duration = 2 })
         end
     end,
 })
@@ -2663,8 +2679,8 @@ MiscTab:CreateButton({
 MiscTab:CreateButton({
     Name     = "Claim Daily Reward Now",
     Callback = function()
-        pcall(function() ClaimDailyReward:InvokeServer() end)
-        Rayfield:Notify({ Title = "Daily", Content = "Claimed daily reward", Duration = 2 })
+        SafeInvoke(ClaimDailyReward)
+        SafeNotify({ Title = "Daily", Content = "Claimed daily reward", Duration = 2 })
     end,
 })
 
@@ -2672,7 +2688,7 @@ MiscTab:CreateButton({
     Name     = "Claim All Achievements Now",
     Callback = function()
         ClaimAllKnownAchievements(0.05)
-        Rayfield:Notify({ Title = "Achievements", Content = "Attempted to claim achievements", Duration = 2 })
+        SafeNotify({ Title = "Achievements", Content = "Attempted to claim achievements", Duration = 2 })
     end,
 })
 
@@ -2680,12 +2696,19 @@ MiscTab:CreateButton({
     Name     = "Claim Trophy Road Now",
     Callback = function()
         for i = 1, 10 do
-            pcall(function() ClaimTrophyRoadRankUpReward:InvokeServer() end)
+            SafeInvoke(ClaimTrophyRoadRankUpReward)
             task.wait(0.3)
         end
-        Rayfield:Notify({ Title = "Trophy Road", Content = "Attempted to claim trophy road rewards", Duration = 2 })
+        SafeNotify({ Title = "Trophy Road", Content = "Attempted to claim trophy road rewards", Duration = 2 })
     end,
 })
 
 -- Load saved config
-Rayfield:LoadConfiguration()
+if Rayfield and type(Rayfield.LoadConfiguration) == "function" then
+    local ok, err = pcall(function()
+        Rayfield:LoadConfiguration()
+    end)
+    if not ok then
+        HubWarn("LoadConfiguration", err)
+    end
+end
