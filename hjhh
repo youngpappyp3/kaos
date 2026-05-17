@@ -14,7 +14,7 @@ local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser       = game:GetService("VirtualUser")
 local player            = Players.LocalPlayer
-local HUB_VERSION       = "2026-05-17-brawler-server-check"
+local HUB_VERSION       = "2026-05-17-auto-battle-equips-best"
 
 -- Remotes
 local Remotes              = ReplicatedStorage:WaitForChild("Remotes", 9e9)
@@ -123,7 +123,6 @@ local BattleMapChoice = "TrainingYard"
 local LastBattleRoleMap = "TrainingYard"
 local RankedBrawlerMode = "Best Overall"
 local RuntimeSettings = {
-    BattleAutoEquipBest = true,
     AutoRankedRewardRoll = true,
     RankedDelay = 10,
     RankedRoundDelay = 4.5,
@@ -713,6 +712,18 @@ local function IsBetterBattleMap(candidate, current, mode)
     return candidate.winChance > current.winChance
 end
 
+local function BuildBattleMapCandidate(mapId, slots, inventory)
+    local map = GetMapConfig(mapId)
+    local preview = GetMapPreview(mapId, slots, inventory)
+    return {
+        mapId = mapId,
+        order = tonumber(map and map.order) or BattleMapOrder[mapId] or 0,
+        trophyReward = tonumber(preview and preview.trophyReward) or tonumber(map and map.trophyReward) or 0,
+        winChance = tonumber(preview and preview.winChance) or tonumber(map and map.baseWinChance) or 0,
+        preview = preview,
+    }
+end
+
 local function ChooseBattleMap(mapIds, slots, inventory, mode, fallbackMap)
     if mode == "Manual Dropdown" then
         return fallbackMap
@@ -721,15 +732,7 @@ local function ChooseBattleMap(mapIds, slots, inventory, mode, fallbackMap)
     local best = nil
     for _, mapId in ipairs(mapIds or {}) do
         if typeof(mapId) == "string" then
-            local map = GetMapConfig(mapId)
-            local preview = GetMapPreview(mapId, slots, inventory)
-            local candidate = {
-                mapId = mapId,
-                order = tonumber(map and map.order) or BattleMapOrder[mapId] or 0,
-                trophyReward = tonumber(preview and preview.trophyReward) or tonumber(map and map.trophyReward) or 0,
-                winChance = tonumber(preview and preview.winChance) or tonumber(map and map.baseWinChance) or 0,
-            }
-
+            local candidate = BuildBattleMapCandidate(mapId, slots, inventory)
             if IsBetterBattleMap(candidate, best, mode) then
                 best = candidate
             end
@@ -739,7 +742,43 @@ local function ChooseBattleMap(mapIds, slots, inventory, mode, fallbackMap)
     return (best and best.mapId) or fallbackMap
 end
 
-local function RequestAndStartSmartBattle(mode, fallbackMap, autoEquipBest)
+local function ChooseBattleMapAndSlots(mapIds, slots, inventory, mode, fallbackMap, autoEquipBest)
+    if mode == "Manual Dropdown" then
+        local manualMap = fallbackMap
+        if autoEquipBest and typeof(manualMap) == "string" then
+            local bestSlots = ChooseBestBattleSlotsForMap(manualMap, inventory)
+            return manualMap, bestSlots
+        end
+        return manualMap, slots
+    end
+
+    if autoEquipBest then
+        local best = nil
+        local bestSlots = nil
+        for _, mapId in ipairs(mapIds or {}) do
+            if typeof(mapId) == "string" then
+                local candidateSlots = ChooseBestBattleSlotsForMap(mapId, inventory)
+                local candidate = BuildBattleMapCandidate(mapId, candidateSlots, inventory)
+                if IsBetterBattleMap(candidate, best, mode) then
+                    best = candidate
+                    bestSlots = candidateSlots
+                end
+            end
+        end
+
+        if best then
+            return best.mapId, bestSlots
+        end
+    end
+
+    local chosenMap = ChooseBattleMap(mapIds, slots, inventory, mode, fallbackMap)
+    if autoEquipBest and typeof(chosenMap) == "string" then
+        return chosenMap, ChooseBestBattleSlotsForMap(chosenMap, inventory)
+    end
+    return chosenMap, slots
+end
+
+local function RequestAndStartSmartBattle(mode, fallbackMap)
     local existingMapIds = {}
     local stateOk, state = SafeInvoke(GetBattleState)
     if stateOk and typeof(state) == "table" then
@@ -783,22 +822,20 @@ local function RequestAndStartSmartBattle(mode, fallbackMap, autoEquipBest)
         return false, nil
     end
 
-    local chosenMap = ChooseBattleMap(mapIds, slots, inventory, mode, fallbackMap)
+    local chosenMap, plannedSlots = ChooseBattleMapAndSlots(mapIds, slots, inventory, mode, fallbackMap, true)
     if typeof(chosenMap) ~= "string" then
         SetBattleStatus("No valid map")
         return false, nil
     end
     LastBattleRoleMap = chosenMap
 
-    if autoEquipBest then
-        local bestSlots = ChooseBestBattleSlotsForMap(chosenMap, inventory)
-        if typeof(bestSlots) == "table" then
-            slots = bestSlots
-            if SafeFire(SetSelectedBattleSlots, slots) then
-                InvalidateInventorySnapshot()
-            end
-            task.wait(0.15)
+    local bestSlots = plannedSlots or ChooseBestBattleSlotsForMap(chosenMap, inventory)
+    if typeof(bestSlots) == "table" then
+        slots = bestSlots
+        if SafeFire(SetSelectedBattleSlots, slots) then
+            InvalidateInventorySnapshot()
         end
+        task.wait(0.15)
     end
 
     SetBattleOffer(mapIds, chosenMap)
@@ -958,6 +995,49 @@ end
 
 local function GetRebirthCount()
     return GetPlayerNumberValue("Rebirth")
+end
+
+local BrawlerUpgradeTemporaryBlocks = {}
+
+local function GetBrawlerUpgradeResourceSignature()
+    return tostring(GetCoins()) .. "|" .. tostring(GetPowerPoints())
+end
+
+local function ClearBrawlerUpgradeTemporaryBlock(brawlerId)
+    if typeof(brawlerId) == "string" then
+        BrawlerUpgradeTemporaryBlocks[brawlerId] = nil
+    end
+end
+
+local function SetBrawlerUpgradeTemporaryBlock(brawlerId, reason)
+    if typeof(brawlerId) ~= "string" or brawlerId == "" then
+        return
+    end
+
+    BrawlerUpgradeTemporaryBlocks[brawlerId] = {
+        reason = tostring(reason or "server rejected upgrade"),
+        resourceSignature = GetBrawlerUpgradeResourceSignature(),
+        expiresAt = os.clock() + 30,
+    }
+end
+
+local function GetBrawlerUpgradeTemporaryBlockReason(brawlerId)
+    local block = BrawlerUpgradeTemporaryBlocks[brawlerId]
+    if typeof(block) ~= "table" then
+        return nil
+    end
+
+    if os.clock() >= (tonumber(block.expiresAt) or 0) then
+        BrawlerUpgradeTemporaryBlocks[brawlerId] = nil
+        return nil
+    end
+
+    if block.resourceSignature ~= GetBrawlerUpgradeResourceSignature() then
+        BrawlerUpgradeTemporaryBlocks[brawlerId] = nil
+        return nil
+    end
+
+    return block.reason or "server rejected upgrade"
 end
 
 local function GetUpgradeSnapshot()
@@ -1244,7 +1324,7 @@ local function ScoreBrawlerUpgradeCandidate(brawlerId, state, mode, targetLevel)
     return (baseScore + roleBonus + selectedBonus) / totalCost
 end
 
-local function ChooseBrawlerUpgradeCandidate(mode, targetLevel, minRarity, includeRoleMatches)
+local function ChooseBrawlerUpgradeCandidate(mode, targetLevel, minRarity, includeRoleMatches, skipIds)
     local _, inventory = GetBattleSlots()
     if typeof(inventory) ~= "table" or typeof(inventory.byId) ~= "table" then
         return nil, "inventory unavailable"
@@ -1254,11 +1334,15 @@ local function ChooseBrawlerUpgradeCandidate(mode, targetLevel, minRarity, inclu
     local matchingLockedByCost = 0
     local matchingMaxedOrTargeted = 0
     local matchingFiltered = 0
+    local matchingTemporarilyBlocked = 0
     for brawlerId, state in pairs(inventory.byId) do
         if typeof(brawlerId) == "string" and typeof(state) == "table" and state.unlocked == true then
             if IsBrawlerAllowedByUpgradeFilter(brawlerId, state, inventory, minRarity, includeRoleMatches) then
                 matchingFiltered += 1
-                if CanUpgradeBrawler(brawlerId, state, targetLevel) then
+                local temporaryBlockReason = GetBrawlerUpgradeTemporaryBlockReason(brawlerId)
+                if (typeof(skipIds) == "table" and skipIds[brawlerId]) or temporaryBlockReason then
+                    matchingTemporarilyBlocked += 1
+                elseif CanUpgradeBrawler(brawlerId, state, targetLevel) then
                     local score = ScoreBrawlerUpgradeCandidate(brawlerId, state, mode, targetLevel)
                     if score and (not best or score > best.score) then
                         best = {
@@ -1290,6 +1374,9 @@ local function ChooseBrawlerUpgradeCandidate(mode, targetLevel, minRarity, inclu
     if matchingLockedByCost > 0 then
         return nil, "not enough Coins or PowerPoints"
     end
+    if matchingTemporarilyBlocked > 0 then
+        return nil, "waiting for Coins or PowerPoints"
+    end
     if matchingMaxedOrTargeted > 0 then
         return nil, "matching brawlers are maxed or at target"
     end
@@ -1311,17 +1398,18 @@ local function SmartPurchaseBrawlerUpgrade(brawlerId)
         return false, result or "remote call failed"
     end
 
-    if ok then
-        if typeof(result) == "table" and typeof(result.inventorySnapshot) == "table" then
-            InventorySnapshotCache = result.inventorySnapshot
-            InventorySnapshotCacheTime = os.clock()
-        else
-            InvalidateInventorySnapshot()
-        end
+    if typeof(result) == "table" and result.ok == false then
+        InvalidateInventorySnapshot()
+        SetBrawlerUpgradeTemporaryBlock(brawlerId, result.message or result.code or "server rejected upgrade")
+        return false, result.message or result.code or "server rejected upgrade"
     end
 
-    if typeof(result) == "table" and result.ok == false then
-        return false, result.message or result.code or "server rejected upgrade"
+    ClearBrawlerUpgradeTemporaryBlock(brawlerId)
+    if typeof(result) == "table" and typeof(result.inventorySnapshot) == "table" then
+        InventorySnapshotCache = result.inventorySnapshot
+        InventorySnapshotCacheTime = os.clock()
+    else
+        InvalidateInventorySnapshot()
     end
 
     return true, result
@@ -1944,13 +2032,18 @@ local function RunBrawlerUpgradeBatch()
     local upgraded = 0
     local lastName = nil
     local lastReason = nil
+    local skippedThisBatch = {}
+    local attempts = 0
+    local maxAttempts = math.max(BrawlerUpgradeBatchSize + 3, BrawlerUpgradeBatchSize * 3)
 
-    for _ = 1, BrawlerUpgradeBatchSize do
+    while upgraded < BrawlerUpgradeBatchSize and attempts < maxAttempts do
+        attempts += 1
         local brawlerId, reason = ChooseBrawlerUpgradeCandidate(
             BrawlerUpgradeMode,
             BrawlerUpgradeTargetLevel,
             BrawlerUpgradeMinRarity,
-            BrawlerUpgradeIncludeRoles
+            BrawlerUpgradeIncludeRoles,
+            skippedThisBatch
         )
         if not brawlerId then
             lastReason = reason
@@ -1961,7 +2054,9 @@ local function RunBrawlerUpgradeBatch()
         if not ok then
             lastReason = tostring(result or "upgrade failed")
             HubDebug("BrawlerUpgrade", "Failed " .. tostring(brawlerId) .. ": " .. lastReason)
-            break
+            skippedThisBatch[brawlerId] = true
+            task.wait(0.05)
+            continue
         end
 
         upgraded += 1
@@ -1990,6 +2085,7 @@ local function DebugBrawlerUpgradeState()
     local matched = 0
     local affordable = 0
     local blockedByCost = 0
+    local temporarilySkipped = 0
     local costUnknown = 0
     local maxedOrTarget = 0
     local firstBlocked = nil
@@ -2004,7 +2100,13 @@ local function DebugBrawlerUpgradeState()
                     local level = math.max(1, math.floor(tonumber(state.level) or 1))
                     local maxLevel = tonumber(BrawlerProgressionConfig and BrawlerProgressionConfig.MaxLevel) or 11
                     local wantedLevel = math.clamp(math.floor(tonumber(BrawlerUpgradeTargetLevel) or maxLevel), 1, maxLevel)
-                    if not costs and level < maxLevel and level < wantedLevel then
+                    local serverBlockReason = GetBrawlerUpgradeTemporaryBlockReason(brawlerId)
+                    if serverBlockReason then
+                        temporarilySkipped += 1
+                        if not firstBlocked then
+                            firstBlocked = GetBrawlerDisplayName(brawlerId) .. " skipped: " .. tostring(serverBlockReason)
+                        end
+                    elseif not costs and level < maxLevel and level < wantedLevel then
                         costUnknown += 1
                         affordable += 1
                     elseif CanUpgradeBrawler(brawlerId, state, BrawlerUpgradeTargetLevel) then
@@ -2036,7 +2138,7 @@ local function DebugBrawlerUpgradeState()
     )
     local candidateText = candidateId and GetBrawlerDisplayName(candidateId) or tostring(reason or "-")
     local summary = string.format(
-        "remote=%s | module=%s | coins=%d | pp=%d | unlocked=%d | matched=%d | affordable=%d | costUnknown=%d | costBlocked=%d | max/target=%d | candidate=%s",
+        "remote=%s | module=%s | coins=%d | pp=%d | unlocked=%d | matched=%d | affordable=%d | costUnknown=%d | costBlocked=%d | skipped=%d | max/target=%d | candidate=%s",
         remoteText,
         moduleText,
         coins,
@@ -2046,6 +2148,7 @@ local function DebugBrawlerUpgradeState()
         affordable,
         costUnknown,
         blockedByCost,
+        temporarilySkipped,
         maxedOrTarget,
         candidateText
     )
@@ -2174,28 +2277,16 @@ BattleOfferLabel = BattleTab:CreateLabel(LastBattleOfferText)
 BattleResultLabel = BattleTab:CreateLabel(LastBattleResultText)
 BattleSlotsLabel = BattleTab:CreateLabel(LastBattleSlotsText)
 
-
-
-BattleTab:CreateToggle({
-    Name         = "Auto Equip Best Battle Slots",
-    CurrentValue = RuntimeSettings.BattleAutoEquipBest,
-    Flag         = "BattleAutoEquipBest",
-    Callback     = function(v)
-        RuntimeSettings.BattleAutoEquipBest = v
-    end,
-})
-
 BattleTab:CreateButton({
     Name     = "Equip Best Battle Slots Now",
     Callback = function()
         local slots, inventory = GetBattleSlots()
         local mapsOk, mapsResult = SafeInvoke(RequestBattleMaps)
         local mapIds = mapsOk and ExtractMapIdsFromOffer(mapsResult) or {}
-        local chosenMap = ChooseBattleMap(mapIds, slots, inventory, BattleChoiceMode, BattleMapChoice)
+        local chosenMap, bestSlots = ChooseBattleMapAndSlots(mapIds, slots, inventory, BattleChoiceMode, BattleMapChoice, true)
         if typeof(chosenMap) == "string" then
             LastBattleRoleMap = chosenMap
         end
-        local bestSlots = ChooseBestBattleSlotsForMap(chosenMap, inventory)
         if typeof(bestSlots) == "table" then
             if SafeFire(SetSelectedBattleSlots, bestSlots) then
                 InvalidateInventorySnapshot()
@@ -2255,14 +2346,14 @@ BattleTab:CreateInput({
 
 local AutoBattle = false
 BattleTab:CreateToggle({
-    Name         = "Auto Battle Loop",
+    Name         = "Auto Battle Loop (Best Slots)",
     CurrentValue = false,
     Flag         = "AutoBattle",
     Callback     = function(v)
         AutoBattle = v
         if AutoBattle then
             StartManagedLoop("AutoBattle", function() return AutoBattle end, function()
-                local ok, waitOverride = RequestAndStartSmartBattle(BattleChoiceMode, BattleMapChoice, RuntimeSettings.BattleAutoEquipBest)
+                local ok, waitOverride = RequestAndStartSmartBattle(BattleChoiceMode, BattleMapChoice)
                 if not ok then
                     return BattleDelay
                 end
@@ -2840,7 +2931,7 @@ MacroTab:CreateToggle({
                 -- 5. Battle cycle
                 if MacroBattleEnabled and now - MacroLastBattle >= 3 then
                     MacroLastBattle = now
-                    RequestAndStartSmartBattle(MacroBattleChoiceMode, MacroMapChoice, RuntimeSettings.BattleAutoEquipBest)
+                    RequestAndStartSmartBattle(MacroBattleChoiceMode, MacroMapChoice)
                     -- Open boxes from completed battle result immediately
                     MacroOpenBoxes()
                 end
@@ -2928,7 +3019,7 @@ MacroTab:CreateToggle({
 
                 if now - lastBattle >= 3 then
                     lastBattle = now
-                    RequestAndStartSmartBattle(MacroBattleChoiceMode, MacroMapChoice, RuntimeSettings.BattleAutoEquipBest)
+                    RequestAndStartSmartBattle(MacroBattleChoiceMode, MacroMapChoice)
                     MacroOpenBoxes()
                 end
 
