@@ -1,6 +1,6 @@
 -- ============================================================
 --  Brawl RNG Hub  |  Rayfield UI
---  Tabs: Auto · Upgrades · Battle · Dice · Codes · Macro · Misc
+--  Tabs: Auto / Upgrades / Battle / Dice / Codes / Macro / Misc
 -- ============================================================
 
 local CoreGui = game:GetService("CoreGui")
@@ -12,7 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser       = game:GetService("VirtualUser")
 local player            = Players.LocalPlayer
 
--- ── Remotes ──────────────────────────────────────────────────
+-- Remotes
 local Remotes              = ReplicatedStorage:WaitForChild("Remotes", 9e9)
 local ClickerTap           = Remotes:WaitForChild("ClickerTap",              9e9)
 local SetAutoClickerEnabled= Remotes:WaitForChild("SetAutoClickerEnabled",   9e9)
@@ -31,10 +31,14 @@ local GetInventorySnapshot = Remotes:WaitForChild("GetInventorySnapshot",    9e9
 local SetPlayerSettings    = Remotes:WaitForChild("SetPlayerSettings",       9e9)
 local RedeemClickerBonus   = Remotes:WaitForChild("RedeemClickerBonus",      9e9)
 
--- ── Rayfield ─────────────────────────────────────────────────
-local Rayfield = loadstring(game:HttpGet(
-    "https://raw.githubusercontent.com/UI-Interface/CustomFIeld/main/RayField.lua"
-))()
+-- Rayfield
+local RayfieldSource = game:HttpGet("https://sirius.menu/rayfield")
+assert(type(RayfieldSource) == "string" and #RayfieldSource > 0, "Failed to download Rayfield")
+
+local RayfieldChunk, RayfieldLoadError = loadstring(RayfieldSource)
+assert(RayfieldChunk, "Failed to parse Rayfield: " .. tostring(RayfieldLoadError))
+
+local Rayfield = RayfieldChunk()
 
 local Window = Rayfield:CreateWindow({
     Name            = "Brawl RNG Hub",
@@ -48,7 +52,7 @@ local Window = Rayfield:CreateWindow({
     KeySystem = false,
 })
 
--- ── Tabs ─────────────────────────────────────────────────────
+-- Tabs
 local AutoTab     = Window:CreateTab("Auto",      4483362458)
 local UpgradeTab  = Window:CreateTab("Upgrades",  4483362458)
 local BattleTab   = Window:CreateTab("Battle",    4483362458)
@@ -57,7 +61,7 @@ local CodesTab    = Window:CreateTab("Codes",     4483362458)
 local MacroTab    = Window:CreateTab("Macro",     4483362458)
 local MiscTab     = Window:CreateTab("Misc",      4483362458)
 
--- ── Managed loop helper ───────────────────────────────────────
+-- Managed loop helper
 local ActiveLoops = {}
 
 local function StartManagedLoop(name, isRunning, tickFn, errDelay)
@@ -557,10 +561,10 @@ CodesTab:CreateInput({
 })
 
 -- ============================================================
---  MACRO TAB  –  All-in-one macro
+--  MACRO TAB - All-in-one macro
 -- ============================================================
 MacroTab:CreateSection("BrawlMax Macro")
-MacroTab:CreateLabel("Click → Upgrades → Rebirth → Battle → Dice")
+MacroTab:CreateLabel("Click -> Upgrades -> Rebirth -> Battle -> Dice")
 
 local MacroRunning       = false
 local MacroRebirthDelay  = 60
@@ -790,5 +794,5 @@ MiscTab:CreateButton({
     end,
 })
 
--- ── Load saved config ─────────────────────────────────────────
+-- Load saved config
 Rayfield:LoadConfiguration()
