@@ -43,8 +43,6 @@ local RankedMatchStart     = Remotes:FindFirstChild("RankedMatchStart") or Remot
 local RankedRoundResolve   = Remotes:FindFirstChild("RankedRoundResolve") or Remotes:WaitForChild("RankedRoundResolve", 5)
 local RankedMatchFinish    = Remotes:FindFirstChild("RankedMatchFinish") or Remotes:WaitForChild("RankedMatchFinish", 5)
 local RankedRewardRoll     = Remotes:FindFirstChild("RankedRewardRoll") or Remotes:WaitForChild("RankedRewardRoll", 5)
--- OpenBox: may be RemoteEvent or RemoteFunction — loaded optionally
-local OpenBox              = Remotes:FindFirstChild("OpenBox") or Remotes:FindFirstChild("ClaimBoxReward") or Remotes:FindFirstChild("OpenStarrDrop")
 
 local function SafeRequireModule(...)
     local node = ReplicatedStorage
@@ -73,8 +71,10 @@ local BrawlerLibrary = SafeRequireModule("UI", "Modules", "BrawlerLibrary")
 local BrawlerProgressionConfig = SafeRequireModule("UI", "Modules", "BrawlerProgressionConfig")
 
 -- Rayfield
-local RayfieldSource = game:HttpGet("https://sirius.menu/rayfield")
-assert(type(RayfieldSource) == "string" and #RayfieldSource > 0, "Failed to download Rayfield")
+local RayfieldOk, RayfieldSource = pcall(function()
+    return game:HttpGet("https://sirius.menu/rayfield", true)
+end)
+assert(RayfieldOk and type(RayfieldSource) == "string" and #RayfieldSource > 0, "Failed to download Rayfield: " .. tostring(RayfieldSource))
 
 local RayfieldChunk, RayfieldLoadError = loadstring(RayfieldSource)
 assert(RayfieldChunk, "Failed to parse Rayfield: " .. tostring(RayfieldLoadError))
@@ -121,6 +121,12 @@ local LastRankedResultText = "Last Result: -"
 local BattleMapChoice = "TrainingYard"
 local LastBattleRoleMap = "TrainingYard"
 local RankedBrawlerMode = "Best Overall"
+local RuntimeSettings = {
+    BattleAutoEquipBest = true,
+    AutoRankedRewardRoll = true,
+    RankedDelay = 10,
+    RankedPostMatchDelay = 10,
+}
 
 local LabelTextCache = setmetatable({}, { __mode = "k" })
 local NumberValueCache = {}
@@ -1478,6 +1484,7 @@ end
 -- ============================================================
 --  AUTO TAB
 -- ============================================================
+do
 AutoTab:CreateSection("Auto Clicker")
 
 local Clicking = false
@@ -1614,9 +1621,12 @@ AutoTab:CreateToggle({
     end,
 })
 
+end
+
 -- ============================================================
 --  UPGRADES TAB
 -- ============================================================
+do
 UpgradeTab:CreateSection("Auto Upgrade All")
 
 UpgradeList = {
@@ -1814,14 +1824,16 @@ UpgradeTab:CreateToggle({
     end,
 })
 
+end
+
 -- ============================================================
 --  BATTLE TAB
 -- ============================================================
+do
 BattleTab:CreateSection("Auto Battle")
 
 BattleMapChoice = "TrainingYard"
 local BattleChoiceMode = "Best Win Chance"
-local BattleAutoEquipBest = true
 BattleStatusLabel = BattleTab:CreateLabel(LastBattleStatusText)
 BattleOfferLabel = BattleTab:CreateLabel(LastBattleOfferText)
 BattleResultLabel = BattleTab:CreateLabel(LastBattleResultText)
@@ -1831,10 +1843,10 @@ BattleSlotsLabel = BattleTab:CreateLabel(LastBattleSlotsText)
 
 BattleTab:CreateToggle({
     Name         = "Auto Equip Best Battle Slots",
-    CurrentValue = true,
+    CurrentValue = RuntimeSettings.BattleAutoEquipBest,
     Flag         = "BattleAutoEquipBest",
     Callback     = function(v)
-        BattleAutoEquipBest = v
+        RuntimeSettings.BattleAutoEquipBest = v
     end,
 })
 
@@ -1915,7 +1927,7 @@ BattleTab:CreateToggle({
         AutoBattle = v
         if AutoBattle then
             StartManagedLoop("AutoBattle", function() return AutoBattle end, function()
-                local ok, waitOverride = RequestAndStartSmartBattle(BattleChoiceMode, BattleMapChoice, BattleAutoEquipBest)
+                local ok, waitOverride = RequestAndStartSmartBattle(BattleChoiceMode, BattleMapChoice, RuntimeSettings.BattleAutoEquipBest)
                 if not ok then
                     return BattleDelay
                 end
@@ -1977,10 +1989,13 @@ BattleTab:CreateToggle({
     end,
 })
 
+end
+
 
 -- ============================================================
 --  DICE TAB
 -- ============================================================
+do
 DiceTab:CreateSection("Auto Roll Dice")
 
 local DiceKind = "regular"
@@ -2052,15 +2067,15 @@ DiceTab:CreateToggle({
     end,
 })
 
+end
+
 -- ============================================================
 --  RANKED TAB
 -- ============================================================
+do
 RankedTab:CreateSection("Auto Ranked")
 
 local AutoRanked = false
-local AutoRankedRewardRoll = true
-local RankedDelay = 10
-local RankedPostMatchDelay = 10
 RankedStatusLabel = RankedTab:CreateLabel(LastRankedStatusText)
 RankedResultLabel = RankedTab:CreateLabel(LastRankedResultText)
 
@@ -2077,10 +2092,10 @@ RankedTab:CreateDropdown({
 
 RankedTab:CreateToggle({
     Name         = "Auto Roll Ranked Reward",
-    CurrentValue = true,
+    CurrentValue = RuntimeSettings.AutoRankedRewardRoll,
     Flag         = "AutoRankedRewardRoll",
     Callback     = function(v)
-        AutoRankedRewardRoll = v
+        RuntimeSettings.AutoRankedRewardRoll = v
     end,
 })
 
@@ -2091,7 +2106,7 @@ RankedTab:CreateInput({
     Callback            = function(v)
         local n = tonumber(v)
         if n and n > 0 then
-            RankedDelay = math.max(n, 1)
+            RuntimeSettings.RankedDelay = math.max(n, 1)
         end
     end,
 })
@@ -2103,7 +2118,7 @@ RankedTab:CreateInput({
     Callback            = function(v)
         local n = tonumber(v)
         if n and n > 0 then
-            RankedPostMatchDelay = math.max(n, 1)
+            RuntimeSettings.RankedPostMatchDelay = math.max(n, 1)
         end
     end,
 })
@@ -2112,7 +2127,7 @@ RankedTab:CreateButton({
     Name     = "Play Ranked Match Once",
     Callback = function()
         task.spawn(function()
-            AutoPlayRankedMatch(AutoRankedRewardRoll)
+            AutoPlayRankedMatch(RuntimeSettings.AutoRankedRewardRoll)
         end)
     end,
 })
@@ -2125,16 +2140,19 @@ RankedTab:CreateToggle({
         AutoRanked = v
         if AutoRanked then
             StartManagedLoop("AutoRanked", function() return AutoRanked end, function()
-                AutoPlayRankedMatch(AutoRankedRewardRoll)
-                return math.max(RankedDelay, RankedPostMatchDelay)
+                AutoPlayRankedMatch(RuntimeSettings.AutoRankedRewardRoll)
+                return math.max(RuntimeSettings.RankedDelay, RuntimeSettings.RankedPostMatchDelay)
             end, 5)
         end
     end,
 })
 
+end
+
 -- ============================================================
 --  CODES TAB
 -- ============================================================
+do
 CodesTab:CreateSection("Auto Redeem Codes")
 
 local KnownCodes = {}
@@ -2307,9 +2325,12 @@ CodesTab:CreateInput({
     end,
 })
 
+end
+
 -- ============================================================
 --  MACRO TAB - All-in-one macro
 -- ============================================================
+do
 MacroTab:CreateSection("BrawlMax Macro")
 MacroTab:CreateLabel("Click -> Upgrades -> Rebirth -> Battle -> Dice")
 
@@ -2472,7 +2493,7 @@ MacroTab:CreateToggle({
                 -- 5. Battle cycle
                 if MacroBattleEnabled and now - MacroLastBattle >= 3 then
                     MacroLastBattle = now
-                    RequestAndStartSmartBattle(MacroBattleChoiceMode, MacroMapChoice, BattleAutoEquipBest)
+                    RequestAndStartSmartBattle(MacroBattleChoiceMode, MacroMapChoice, RuntimeSettings.BattleAutoEquipBest)
                     -- Open boxes from completed battle result immediately
                     MacroOpenBoxes()
                 end
@@ -2560,7 +2581,7 @@ MacroTab:CreateToggle({
 
                 if now - lastBattle >= 3 then
                     lastBattle = now
-                    RequestAndStartSmartBattle(MacroBattleChoiceMode, MacroMapChoice, BattleAutoEquipBest)
+                    RequestAndStartSmartBattle(MacroBattleChoiceMode, MacroMapChoice, RuntimeSettings.BattleAutoEquipBest)
                     MacroOpenBoxes()
                 end
 
@@ -2588,18 +2609,20 @@ MacroTab:CreateToggle({
             StartManagedLoop("RankedFarmMacro", function() return RankedFarmMacroRunning end, function()
                 local now = os.clock()
 
-                AutoPlayRankedMatch(AutoRankedRewardRoll)
+                AutoPlayRankedMatch(RuntimeSettings.AutoRankedRewardRoll)
 
                 if now - lastReward >= 30 then
                     lastReward = now
                     MacroClaimRewards()
                 end
 
-                return math.max(RankedDelay, RankedPostMatchDelay)
+                return math.max(RuntimeSettings.RankedDelay, RuntimeSettings.RankedPostMatchDelay)
             end, 5)
         end
     end,
 })
+
+end
 
 -- ============================================================
 --  MISC TAB
