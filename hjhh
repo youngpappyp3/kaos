@@ -150,6 +150,10 @@ local function HubWarn(context, err)
     warn("[BrawlRNG Hub] " .. key .. ": " .. tostring(err))
 end
 
+local function HubDebug(context, message)
+    warn("[BrawlRNG Hub] " .. tostring(context or "Debug") .. ": " .. tostring(message or ""))
+end
+
 local function SafeNotify(data)
     if Rayfield and type(Rayfield.Notify) == "function" then
         local ok, err = pcall(function()
@@ -1293,10 +1297,19 @@ end
 
 local function SmartPurchaseBrawlerUpgrade(brawlerId)
     if typeof(brawlerId) ~= "string" or brawlerId == "" then
-        return false, nil
+        return false, "missing brawler id"
+    end
+
+    if not PurchaseBrawlerUpgrade then
+        return false, "PurchaseBrawlerUpgrade remote missing"
     end
 
     local ok, result = SafeInvoke(PurchaseBrawlerUpgrade, brawlerId)
+    if not ok then
+        InvalidateInventorySnapshot()
+        return false, result or "remote call failed"
+    end
+
     if ok then
         if typeof(result) == "table" and typeof(result.inventorySnapshot) == "table" then
             InventorySnapshotCache = result.inventorySnapshot
@@ -1305,7 +1318,12 @@ local function SmartPurchaseBrawlerUpgrade(brawlerId)
             InvalidateInventorySnapshot()
         end
     end
-    return ok and (typeof(result) ~= "table" or result.ok ~= false), result
+
+    if typeof(result) == "table" and result.ok == false then
+        return false, result.message or result.code or "server rejected upgrade"
+    end
+
+    return true, result
 end
 
 local function NormalizeDiceKind(kind)
@@ -1877,12 +1895,14 @@ local function RunBrawlerUpgradeBatch()
 
         local ok, result = SmartPurchaseBrawlerUpgrade(brawlerId)
         if not ok then
-            lastReason = typeof(result) == "table" and result.message or "upgrade failed"
+            lastReason = tostring(result or "upgrade failed")
+            HubDebug("BrawlerUpgrade", "Failed " .. tostring(brawlerId) .. ": " .. lastReason)
             break
         end
 
         upgraded += 1
         lastName = GetBrawlerDisplayName(brawlerId)
+        HubDebug("BrawlerUpgrade", "Upgraded " .. tostring(brawlerId))
         task.wait(0.15)
     end
 
@@ -1892,7 +1912,86 @@ local function RunBrawlerUpgradeBatch()
     end
 
     SetBrawlerUpgradeStatus(tostring(lastReason or "nothing to upgrade"))
+    HubDebug("BrawlerUpgrade", tostring(lastReason or "nothing to upgrade"))
     return false
+end
+
+local function DebugBrawlerUpgradeState()
+    local _, inventory = GetBattleSlots()
+    local remoteText = PurchaseBrawlerUpgrade and (PurchaseBrawlerUpgrade.ClassName or "exists") or "missing"
+    local moduleText = BrawlerProgressionConfig and "loaded" or "missing"
+    local coins = GetCoins()
+    local powerPoints = GetPowerPoints()
+    local unlocked = 0
+    local matched = 0
+    local affordable = 0
+    local blockedByCost = 0
+    local maxedOrTarget = 0
+    local firstBlocked = nil
+
+    if typeof(inventory) == "table" and typeof(inventory.byId) == "table" then
+        for brawlerId, state in pairs(inventory.byId) do
+            if typeof(brawlerId) == "string" and typeof(state) == "table" and state.unlocked == true then
+                unlocked += 1
+                if IsBrawlerAllowedByUpgradeFilter(brawlerId, state, inventory, BrawlerUpgradeMinRarity, BrawlerUpgradeIncludeRoles) then
+                    matched += 1
+                    local costs = GetBrawlerUpgradeCost(brawlerId, state)
+                    local level = math.max(1, math.floor(tonumber(state.level) or 1))
+                    local maxLevel = tonumber(BrawlerProgressionConfig and BrawlerProgressionConfig.MaxLevel) or 11
+                    local wantedLevel = math.clamp(math.floor(tonumber(BrawlerUpgradeTargetLevel) or maxLevel), 1, maxLevel)
+                    if CanUpgradeBrawler(brawlerId, state, BrawlerUpgradeTargetLevel) then
+                        affordable += 1
+                    elseif costs and level < maxLevel and level < wantedLevel then
+                        blockedByCost += 1
+                        if not firstBlocked then
+                            firstBlocked = string.format(
+                                "%s L%d needs %d coins/%d pp",
+                                GetBrawlerDisplayName(brawlerId),
+                                level,
+                                costs.coins,
+                                costs.powerPoints
+                            )
+                        end
+                    else
+                        maxedOrTarget += 1
+                    end
+                end
+            end
+        end
+    end
+
+    local candidateId, reason = ChooseBrawlerUpgradeCandidate(
+        BrawlerUpgradeMode,
+        BrawlerUpgradeTargetLevel,
+        BrawlerUpgradeMinRarity,
+        BrawlerUpgradeIncludeRoles
+    )
+    local candidateText = candidateId and GetBrawlerDisplayName(candidateId) or tostring(reason or "-")
+    local summary = string.format(
+        "remote=%s | module=%s | coins=%d | pp=%d | unlocked=%d | matched=%d | affordable=%d | costBlocked=%d | max/target=%d | candidate=%s",
+        remoteText,
+        moduleText,
+        coins,
+        powerPoints,
+        unlocked,
+        matched,
+        affordable,
+        blockedByCost,
+        maxedOrTarget,
+        candidateText
+    )
+
+    if firstBlocked then
+        summary = summary .. " | firstBlocked=" .. firstBlocked
+    end
+
+    HubDebug("BrawlerUpgradeDebug", summary)
+    SetBrawlerUpgradeStatus("Debug: " .. candidateText)
+    SafeNotify({
+        Title = "Brawler Upgrade Debug",
+        Content = summary,
+        Duration = 8,
+    })
 end
 
 UpgradeTab:CreateDropdown({
@@ -1959,6 +2058,15 @@ UpgradeTab:CreateButton({
     Callback = function()
         task.spawn(function()
             RunBrawlerUpgradeBatch()
+        end)
+    end,
+})
+
+UpgradeTab:CreateButton({
+    Name     = "Debug Brawler Upgrades",
+    Callback = function()
+        task.spawn(function()
+            DebugBrawlerUpgradeState()
         end)
     end,
 })
