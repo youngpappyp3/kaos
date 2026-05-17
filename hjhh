@@ -1,6 +1,9 @@
 -- ============================================================
 --  Brawl RNG Hub  |  Rayfield UI
---  Tabs: Auto / Upgrades / Battle / Dice / Codes / Macro / Misc
+--  Tabs: Auto / Upgrades / Battle / Dice / Ranked / Codes / Macro / Misc
+--  Features: AutoClick, AutoRebirth, AutoClaimRewards, AutoClickerBonus,
+--            AutoUpgrade, AutoBattle+Collect+OpenBoxes, AutoDice,
+--            AutoRanked, AutoRedeemCodes, BrawlMax Macro
 -- ============================================================
 
 local CoreGui = game:GetService("CoreGui")
@@ -37,6 +40,8 @@ local RankedMatchStart     = Remotes:FindFirstChild("RankedMatchStart") or Remot
 local RankedRoundResolve   = Remotes:FindFirstChild("RankedRoundResolve") or Remotes:WaitForChild("RankedRoundResolve", 5)
 local RankedMatchFinish    = Remotes:FindFirstChild("RankedMatchFinish") or Remotes:WaitForChild("RankedMatchFinish", 5)
 local RankedRewardRoll     = Remotes:FindFirstChild("RankedRewardRoll") or Remotes:WaitForChild("RankedRewardRoll", 5)
+-- OpenBox: may be RemoteEvent or RemoteFunction — loaded optionally
+local OpenBox              = Remotes:FindFirstChild("OpenBox") or Remotes:FindFirstChild("ClaimBoxReward") or Remotes:FindFirstChild("OpenStarrDrop")
 
 local function SafeRequireModule(...)
     local node = ReplicatedStorage
@@ -1197,6 +1202,33 @@ AutoTab:CreateToggle({
     end,
 })
 
+AutoTab:CreateSection("Auto Clicker Bonus")
+
+local AutoClickerBonus = false
+local ClickerBonusDelay = 5
+AutoTab:CreateInput({
+    Name                = "Clicker Bonus Delay (seconds)",
+    PlaceholderText     = "Default: 5",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        ClickerBonusDelay = math.max(tonumber(v) or 5, 1)
+    end,
+})
+AutoTab:CreateToggle({
+    Name         = "Auto Redeem Clicker Bonus",
+    CurrentValue = false,
+    Flag         = "AutoClickerBonus",
+    Callback     = function(v)
+        AutoClickerBonus = v
+        if AutoClickerBonus then
+            StartManagedLoop("AutoClickerBonus", function() return AutoClickerBonus end, function()
+                SafeInvoke(RedeemClickerBonus)
+                return ClickerBonusDelay
+            end, 2)
+        end
+    end,
+})
+
 -- ============================================================
 --  UPGRADES TAB
 -- ============================================================
@@ -1417,28 +1449,69 @@ BattleTab:CreateToggle({
     end,
 })
 
-BattleTab:CreateSection("Auto Collect Results")
+BattleTab:CreateSection("Auto Collect & Open Boxes")
 
-local AutoCollectResults = false
-BattleTab:CreateToggle({
-    Name         = "Auto Collect Battle Results",
-    CurrentValue = false,
-    Flag         = "AutoCollectResults",
-    Callback     = function(v)
-        AutoCollectResults = v
-        if AutoCollectResults then
-            StartManagedLoop("AutoCollectResults", function() return AutoCollectResults end, function()
-                local stateOk, state = pcall(function()
-                    return GetBattleState:InvokeServer()
-                end)
-                if stateOk and typeof(state) == "table" and typeof(state.completedResult) == "table" then
-                    SetBattleResult(state.completedResult)
-                    SetBattleStatus("Completed - collecting")
-                    pcall(function()
-                        AcknowledgeBattleResult:InvokeServer({ deferBoxRewards = true })
-                    end)
+-- When AutoBattle is ON it already collects results inside RequestAndStartSmartBattle.
+-- This standalone toggle handles collection when AutoBattle is OFF,
+-- and also opens ALL pending boxes (StarrDrops, ChaosDrops, RankedDrops, etc.).
+
+local KnownBoxIds = {
+    "StarrDrop", "ChaosDrop", "AngelicDrop", "DemonicDrop",
+    "NovaDrop", "RankedSilverDrop", "RankedGoldDrop", "PinPack",
+}
+
+local function OpenAllPendingBoxes(inventory)
+    -- Strategy 1: use dedicated OpenBox remote if it exists
+    if OpenBox then
+        for _, boxId in ipairs(KnownBoxIds) do
+            local count = 0
+            if typeof(inventory) == "table" and typeof(inventory.boxes) == "table" then
+                count = tonumber(inventory.boxes[boxId]) or 0
+            end
+            if count > 0 then
+                for _ = 1, count do
+                    SafeInvoke(OpenBox, boxId)
+                    task.wait(0.15)
                 end
-                return 3
+                InvalidateInventorySnapshot()
+            end
+        end
+    end
+
+    -- Strategy 2: AcknowledgeBattleResult with deferBoxRewards = false
+    -- (collects and opens boxes from a completed battle in one call)
+    local stateOk, state = SafeInvoke(GetBattleState)
+    if stateOk and typeof(state) == "table" and typeof(state.completedResult) == "table" then
+        SetBattleResult(state.completedResult)
+        SetBattleStatus("Collecting + opening boxes")
+        SafeInvoke(AcknowledgeBattleResult, { deferBoxRewards = false })
+        InvalidateInventorySnapshot()
+        return true
+    end
+    return false
+end
+
+local AutoOpenBoxes = false
+local OpenBoxDelay = 3
+BattleTab:CreateInput({
+    Name                = "Box Open Loop Delay (seconds)",
+    PlaceholderText     = "Default: 3",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        OpenBoxDelay = math.max(tonumber(v) or 3, 0.5)
+    end,
+})
+BattleTab:CreateToggle({
+    Name         = "Auto Collect & Open All Boxes",
+    CurrentValue = false,
+    Flag         = "AutoOpenBoxes",
+    Callback     = function(v)
+        AutoOpenBoxes = v
+        if AutoOpenBoxes then
+            StartManagedLoop("AutoOpenBoxes", function() return AutoOpenBoxes end, function()
+                local _, inv = GetBattleSlots()
+                OpenAllPendingBoxes(inv)
+                return OpenBoxDelay
             end, 3)
         end
     end,
@@ -1826,6 +1899,24 @@ local function MacroClaimRewards()
     pcall(function() ClaimDailyReward:InvokeServer() end)
     ClaimAllKnownAchievements(0.02)
     pcall(function() ClaimTrophyRoadRankUpReward:InvokeServer() end)
+    SafeInvoke(RedeemClickerBonus)
+end
+
+local function MacroOpenBoxes()
+    -- Open all pending battle boxes
+    local stateOk, state = SafeInvoke(GetBattleState)
+    if stateOk and typeof(state) == "table" and typeof(state.completedResult) == "table" then
+        SafeInvoke(AcknowledgeBattleResult, { deferBoxRewards = false })
+        InvalidateInventorySnapshot()
+    end
+    -- Also try dedicated OpenBox remote for each known box type
+    if OpenBox then
+        for _, boxId in ipairs(KnownBoxIds or {}) do
+            SafeInvoke(OpenBox, boxId)
+            task.wait(0.1)
+        end
+        InvalidateInventorySnapshot()
+    end
 end
 
 MacroTab:CreateInput({
@@ -1914,6 +2005,8 @@ MacroTab:CreateToggle({
                 if MacroBattleEnabled and now - MacroLastBattle >= 3 then
                     MacroLastBattle = now
                     RequestAndStartSmartBattle(MacroBattleChoiceMode, MacroMapChoice, BattleAutoEquipBest)
+                    -- Open boxes from completed battle result immediately
+                    MacroOpenBoxes()
                 end
 
                 -- 6. Claim rewards
@@ -2000,6 +2093,7 @@ MacroTab:CreateToggle({
                 if now - lastBattle >= 3 then
                     lastBattle = now
                     RequestAndStartSmartBattle(MacroBattleChoiceMode, MacroMapChoice, BattleAutoEquipBest)
+                    MacroOpenBoxes()
                 end
 
                 if now - lastReward >= 30 then
