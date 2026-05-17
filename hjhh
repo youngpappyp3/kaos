@@ -125,6 +125,7 @@ local RuntimeSettings = {
     BattleAutoEquipBest = true,
     AutoRankedRewardRoll = true,
     RankedDelay = 10,
+    RankedRoundDelay = 4.5,
     RankedPostMatchDelay = 10,
 }
 
@@ -1415,6 +1416,55 @@ local function GetBestRankedBrawlerCandidates(inventory)
     return candidates
 end
 
+local function GetRankedRotationLimit(candidateCount)
+    if RankedBrawlerMode == "Rotate Top 3" then
+        return math.min(candidateCount, 3)
+    end
+    if RankedBrawlerMode == "Rotate Top 5" then
+        return math.min(candidateCount, 5)
+    end
+    return 0
+end
+
+local function GetRankedRoundAttemptOrder(candidates, roundNumber)
+    if typeof(candidates) ~= "table" or #candidates <= 0 then
+        return { { id = "shelly", score = 0 } }
+    end
+
+    local limit = GetRankedRotationLimit(#candidates)
+    if limit <= 1 then
+        return candidates
+    end
+
+    local ordered = {}
+    local added = {}
+    local startIndex = ((math.max(1, math.floor(tonumber(roundNumber) or 1)) - 1) % limit) + 1
+
+    for offset = 0, limit - 1 do
+        local index = ((startIndex + offset - 1) % limit) + 1
+        local candidate = candidates[index]
+        if candidate and not added[candidate.id] then
+            added[candidate.id] = true
+            ordered[#ordered + 1] = candidate
+        end
+    end
+
+    for _, candidate in ipairs(candidates) do
+        if candidate and not added[candidate.id] then
+            added[candidate.id] = true
+            ordered[#ordered + 1] = candidate
+        end
+    end
+
+    return ordered
+end
+
+local function GetRankedRoundLeadBrawlerId(candidates, roundNumber)
+    local order = GetRankedRoundAttemptOrder(candidates, roundNumber)
+    local first = order and order[1]
+    return typeof(first) == "table" and first.id or "shelly"
+end
+
 local function SelectBestRankedBrawler(candidates)
     local best = candidates and candidates[1]
     local bestId = typeof(best) == "table" and best.id or "shelly"
@@ -1445,7 +1495,7 @@ end
 
 local function ResolveRankedRound(matchId, roundNumber, candidates)
     local lastMessage = nil
-    for _, candidate in ipairs(candidates) do
+    for _, candidate in ipairs(GetRankedRoundAttemptOrder(candidates, roundNumber)) do
         local brawlerId = candidate.id
         if SafeFire(SelectBrawler, brawlerId) then
             task.wait(0.08)
@@ -1467,6 +1517,17 @@ local function ResolveRankedRound(matchId, roundNumber, candidates)
     end
 
     return false, lastMessage, nil
+end
+
+local function GetRankedRoundPaceDelay(round)
+    local baseDelay = math.max(tonumber(RuntimeSettings.RankedRoundDelay) or 4.5, 0.75)
+    if typeof(round) == "table" then
+        local retryAfter = tonumber(round.retryAfter)
+        if retryAfter and retryAfter > 0 then
+            return math.max(baseDelay, math.clamp(retryAfter, 0.75, 8))
+        end
+    end
+    return baseDelay
 end
 
 local function FinishRankedMatch(matchId)
@@ -1546,7 +1607,8 @@ local function AutoPlayRankedMatch(autoRollReward)
     local lastBrawlerId = selectedBrawlerId
 
     for roundNumber = 1, 9 do
-        SetRankedStatus(string.format("Resolving round %d with %s", roundNumber, tostring(lastBrawlerId)))
+        local plannedBrawlerId = GetRankedRoundLeadBrawlerId(rankedCandidates, roundNumber)
+        SetRankedStatus(string.format("Resolving round %d with %s", roundNumber, tostring(plannedBrawlerId)))
         local roundOk, round, usedBrawlerId = ResolveRankedRound(matchId, roundNumber, rankedCandidates)
         lastBrawlerId = usedBrawlerId or lastBrawlerId
 
@@ -1566,7 +1628,9 @@ local function AutoPlayRankedMatch(autoRollReward)
             break
         end
 
-        task.wait(0.35)
+        local paceDelay = GetRankedRoundPaceDelay(round)
+        SetRankedStatus(string.format("Waiting %.1fs before round %d", paceDelay, roundNumber + 1))
+        task.wait(paceDelay)
     end
 
     if not matchResult then
@@ -1994,6 +2058,15 @@ local function DebugBrawlerUpgradeState()
     })
 end
 
+UpgradeTab:CreateButton({
+    Name     = "DEBUG: Brawler Upgrade State",
+    Callback = function()
+        task.spawn(function()
+            DebugBrawlerUpgradeState()
+        end)
+    end,
+})
+
 UpgradeTab:CreateDropdown({
     Name    = "Brawler Upgrade Priority",
     Options = { "Epic+ + Roles", "Battle Slots", "Recommended Roles", "Best Value", "Lowest Level" },
@@ -2058,15 +2131,6 @@ UpgradeTab:CreateButton({
     Callback = function()
         task.spawn(function()
             RunBrawlerUpgradeBatch()
-        end)
-    end,
-})
-
-UpgradeTab:CreateButton({
-    Name     = "Debug Brawler Upgrades",
-    Callback = function()
-        task.spawn(function()
-            DebugBrawlerUpgradeState()
         end)
     end,
 })
@@ -2347,7 +2411,7 @@ RankedResultLabel = RankedTab:CreateLabel(LastRankedResultText)
 
 RankedTab:CreateDropdown({
     Name    = "Ranked Brawler Priority",
-    Options = { "Best Overall", "Selected Brawler", "Highest Level", "Highest Trophies" },
+    Options = { "Best Overall", "Rotate Top 3", "Rotate Top 5", "Selected Brawler", "Highest Level", "Highest Trophies" },
     CurrentOption = { "Best Overall" },
     MultipleOptions = false,
     Flag    = "RankedBrawlerMode",
@@ -2373,6 +2437,18 @@ RankedTab:CreateInput({
         local n = tonumber(v)
         if n and n > 0 then
             RuntimeSettings.RankedDelay = math.max(n, 1)
+        end
+    end,
+})
+
+RankedTab:CreateInput({
+    Name                = "Ranked Round Pace (seconds)",
+    PlaceholderText     = "Default: 4.5",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        local n = tonumber(v)
+        if n and n > 0 then
+            RuntimeSettings.RankedRoundDelay = math.clamp(n, 0.75, 12)
         end
     end,
 })
