@@ -1,6 +1,6 @@
 -- ============================================================
---  Clicker Hub  |  Rayfield UI
---  Tabs: Auto · Upgrades · Roll · Rebirth · Macro · Misc
+--  Brawl RNG Hub  |  Rayfield UI
+--  Tabs: Auto · Upgrades · Battle · Dice · Codes · Macro · Misc
 -- ============================================================
 
 local CoreGui = game:GetService("CoreGui")
@@ -13,11 +13,23 @@ local VirtualUser       = game:GetService("VirtualUser")
 local player            = Players.LocalPlayer
 
 -- ── Remotes ──────────────────────────────────────────────────
-local Remotes         = ReplicatedStorage:WaitForChild("Remotes", 9e9)
-local ClickerTap      = Remotes:WaitForChild("ClickerTap",       9e9)
-local PurchaseUpgrade = Remotes:WaitForChild("PurchaseUpgrade",  9e9)
-local PurchaseRebirth = Remotes:WaitForChild("PurchaseRebirth",  9e9)
-local RollDice        = Remotes:WaitForChild("RollDice",         9e9)
+local Remotes              = ReplicatedStorage:WaitForChild("Remotes", 9e9)
+local ClickerTap           = Remotes:WaitForChild("ClickerTap",              9e9)
+local SetAutoClickerEnabled= Remotes:WaitForChild("SetAutoClickerEnabled",   9e9)
+local PurchaseUpgrade      = Remotes:WaitForChild("PurchaseUpgrade",         9e9)
+local PurchaseRebirth      = Remotes:WaitForChild("PurchaseRebirth",         9e9)
+local RollDice             = Remotes:WaitForChild("RollDice",                9e9)
+local RequestBattleMaps    = Remotes:WaitForChild("RequestBattleMaps",       9e9)
+local StartBattle          = Remotes:WaitForChild("StartBattle",             9e9)
+local AcknowledgeBattleResult = Remotes:WaitForChild("AcknowledgeBattleResult", 9e9)
+local GetBattleState       = Remotes:WaitForChild("GetBattleState",          9e9)
+local RedeemCode           = Remotes:WaitForChild("RedeemCode",              9e9)
+local ClaimDailyReward     = Remotes:WaitForChild("ClaimDailyReward",        9e9)
+local ClaimAchievementReward = Remotes:WaitForChild("ClaimAchievementReward",9e9)
+local ClaimTrophyRoadRankUpReward = Remotes:WaitForChild("ClaimTrophyRoadRankUpReward", 9e9)
+local GetInventorySnapshot = Remotes:WaitForChild("GetInventorySnapshot",    9e9)
+local SetPlayerSettings    = Remotes:WaitForChild("SetPlayerSettings",       9e9)
+local RedeemClickerBonus   = Remotes:WaitForChild("RedeemClickerBonus",      9e9)
 
 -- ── Rayfield ─────────────────────────────────────────────────
 local Rayfield = loadstring(game:HttpGet(
@@ -25,24 +37,25 @@ local Rayfield = loadstring(game:HttpGet(
 ))()
 
 local Window = Rayfield:CreateWindow({
-    Name            = "Clicker Hub",
-    LoadingTitle    = "Clicker Game",
-    LoadingSubtitle = "by Script",
+    Name            = "Brawl RNG Hub",
+    LoadingTitle    = "Brawl RNG",
+    LoadingSubtitle = "Loading...",
     ConfigurationSaving = {
         Enabled    = true,
         FolderName = nil,
-        FileName   = "ClickerHubConfig",
+        FileName   = "BrawlRNGHubConfig",
     },
     KeySystem = false,
 })
 
 -- ── Tabs ─────────────────────────────────────────────────────
-local AutoTab    = Window:CreateTab("Auto",     4483362458)
-local UpgradeTab = Window:CreateTab("Upgrades", 4483362458)
-local RollTab    = Window:CreateTab("Roll",     4483362458)
-local RebirthTab = Window:CreateTab("Rebirth",  4483362458)
-local MacroTab   = Window:CreateTab("Macro",    4483362458)
-local MiscTab    = Window:CreateTab("Misc",     4483362458)
+local AutoTab     = Window:CreateTab("Auto",      4483362458)
+local UpgradeTab  = Window:CreateTab("Upgrades",  4483362458)
+local BattleTab   = Window:CreateTab("Battle",    4483362458)
+local DiceTab     = Window:CreateTab("Dice",      4483362458)
+local CodesTab    = Window:CreateTab("Codes",     4483362458)
+local MacroTab    = Window:CreateTab("Macro",     4483362458)
+local MiscTab     = Window:CreateTab("Misc",      4483362458)
 
 -- ── Managed loop helper ───────────────────────────────────────
 local ActiveLoops = {}
@@ -52,10 +65,10 @@ local function StartManagedLoop(name, isRunning, tickFn, errDelay)
     ActiveLoops[name] = true
     task.spawn(function()
         while isRunning() do
-            local ok, wait = pcall(tickFn)
+            local ok, waitTime = pcall(tickFn)
             if ok then
-                if type(wait) == "number" and wait > 0 then
-                    task.wait(wait)
+                if type(waitTime) == "number" and waitTime > 0 then
+                    task.wait(waitTime)
                 end
             else
                 task.wait(errDelay or 1)
@@ -66,10 +79,9 @@ local function StartManagedLoop(name, isRunning, tickFn, errDelay)
 end
 
 -- ============================================================
---  AUTO TAB  –  Auto Clicker
+--  AUTO TAB
 -- ============================================================
 AutoTab:CreateSection("Auto Clicker")
-AutoTab:CreateLabel("Fires ClickerTap every 0.1 s")
 
 local Clicking = false
 AutoTab:CreateToggle({
@@ -87,30 +99,143 @@ AutoTab:CreateToggle({
     end,
 })
 
+AutoTab:CreateSection("Server Auto Clicker")
+
+local ServerAutoClicker = false
+AutoTab:CreateToggle({
+    Name         = "Enable Server Auto Clicker",
+    CurrentValue = false,
+    Flag         = "ServerAutoClicker",
+    Callback     = function(v)
+        ServerAutoClicker = v
+        pcall(function()
+            SetAutoClickerEnabled:InvokeServer(v)
+        end)
+    end,
+})
+
+AutoTab:CreateSection("Auto Rebirth")
+
+local RebirthDelay = 5
+AutoTab:CreateInput({
+    Name                = "Rebirth Delay (seconds)",
+    PlaceholderText     = "Default: 5",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        RebirthDelay = tonumber(v) or 5
+    end,
+})
+
+local AutoRebirth = false
+AutoTab:CreateToggle({
+    Name         = "Auto Rebirth",
+    CurrentValue = false,
+    Flag         = "AutoRebirth",
+    Callback     = function(v)
+        AutoRebirth = v
+        if AutoRebirth then
+            StartManagedLoop("AutoRebirth", function() return AutoRebirth end, function()
+                PurchaseRebirth:InvokeServer()
+                return RebirthDelay
+            end, 2)
+        end
+    end,
+})
+
+AutoTab:CreateSection("Auto Claim Rewards")
+
+local AutoClaimDaily = false
+AutoTab:CreateToggle({
+    Name         = "Auto Claim Daily Reward",
+    CurrentValue = false,
+    Flag         = "AutoClaimDaily",
+    Callback     = function(v)
+        AutoClaimDaily = v
+        if AutoClaimDaily then
+            StartManagedLoop("AutoClaimDaily", function() return AutoClaimDaily end, function()
+                ClaimDailyReward:InvokeServer()
+                return 30
+            end, 5)
+        end
+    end,
+})
+
+local AutoClaimAchievements = false
+AutoTab:CreateToggle({
+    Name         = "Auto Claim Achievements",
+    CurrentValue = false,
+    Flag         = "AutoClaimAchievements",
+    Callback     = function(v)
+        AutoClaimAchievements = v
+        if AutoClaimAchievements then
+            StartManagedLoop("AutoClaimAchievements", function() return AutoClaimAchievements end, function()
+                ClaimAchievementReward:InvokeServer()
+                return 10
+            end, 5)
+        end
+    end,
+})
+
+local AutoClaimTrophyRoad = false
+AutoTab:CreateToggle({
+    Name         = "Auto Claim Trophy Road",
+    CurrentValue = false,
+    Flag         = "AutoClaimTrophyRoad",
+    Callback     = function(v)
+        AutoClaimTrophyRoad = v
+        if AutoClaimTrophyRoad then
+            StartManagedLoop("AutoClaimTrophyRoad", function() return AutoClaimTrophyRoad end, function()
+                ClaimTrophyRoadRankUpReward:InvokeServer()
+                return 15
+            end, 5)
+        end
+    end,
+})
+
 -- ============================================================
---  UPGRADES TAB  –  Auto Upgrade Loop
+--  UPGRADES TAB
 -- ============================================================
-UpgradeTab:CreateSection("Auto Upgrades")
-UpgradeTab:CreateLabel("Loops: ClickPower → CoinGenerator")
+UpgradeTab:CreateSection("Auto Upgrade All")
 
 local UpgradeList = {
     { "ClickPower",    "single" },
     { "CoinGenerator", "single" },
+    { "AutoClicker",   "single" },
 }
 
-local AutoUpgrade = false
+local AutoUpgradeAll = false
 UpgradeTab:CreateToggle({
-    Name         = "Auto Upgrade Loop",
+    Name         = "Auto Upgrade All (Loop)",
     CurrentValue = false,
-    Flag         = "AutoUpgradeLoop",
+    Flag         = "AutoUpgradeAll",
     Callback     = function(v)
-        AutoUpgrade = v
-        if AutoUpgrade then
-            StartManagedLoop("AutoUpgradeLoop", function() return AutoUpgrade end, function()
+        AutoUpgradeAll = v
+        if AutoUpgradeAll then
+            StartManagedLoop("AutoUpgradeAll", function() return AutoUpgradeAll end, function()
                 for _, entry in ipairs(UpgradeList) do
-                    if not AutoUpgrade then break end
+                    if not AutoUpgradeAll then break end
                     PurchaseUpgrade:InvokeServer(entry[1], entry[2])
-                    task.wait(0.2)
+                    task.wait(0.15)
+                end
+                return 0.3
+            end, 1)
+        end
+    end,
+})
+
+local AutoMaxUpgradeAll = false
+UpgradeTab:CreateToggle({
+    Name         = "Auto MAX Upgrade All",
+    CurrentValue = false,
+    Flag         = "AutoMaxUpgradeAll",
+    Callback     = function(v)
+        AutoMaxUpgradeAll = v
+        if AutoMaxUpgradeAll then
+            StartManagedLoop("AutoMaxUpgradeAll", function() return AutoMaxUpgradeAll end, function()
+                for _, entry in ipairs(UpgradeList) do
+                    if not AutoMaxUpgradeAll then break end
+                    PurchaseUpgrade:InvokeServer(entry[1], "max")
+                    task.wait(0.15)
                 end
                 return 0.5
             end, 1)
@@ -152,17 +277,162 @@ UpgradeTab:CreateToggle({
     end,
 })
 
--- ============================================================
---  ROLL TAB  –  Auto Roll (Golden & Regular)
--- ============================================================
-RollTab:CreateSection("Auto Roll")
-RollTab:CreateLabel("Invokes Golden & Regular rolls on a loop")
+local AutoAutoClicker = false
+UpgradeTab:CreateToggle({
+    Name         = "Auto Buy AutoClicker Upgrade",
+    CurrentValue = false,
+    Flag         = "AutoAutoClicker",
+    Callback     = function(v)
+        AutoAutoClicker = v
+        if AutoAutoClicker then
+            StartManagedLoop("AutoAutoClicker", function() return AutoAutoClicker end, function()
+                PurchaseUpgrade:InvokeServer("AutoClicker", "single")
+                return 0.3
+            end, 1)
+        end
+    end,
+})
 
-local RollDelay = 5   -- default delay in seconds
+-- ============================================================
+--  BATTLE TAB
+-- ============================================================
+BattleTab:CreateSection("Auto Battle")
 
-RollTab:CreateInput({
+local BattleMapChoice = "TrainingYard"
+BattleTab:CreateDropdown({
+    Name    = "Select Map",
+    Options = {
+        "TrainingYard", "CoinCave", "GemTunnel", "PowerPit",
+        "ScrapYard", "TrophyTrail", "HeistRoom", "AmbushValley",
+        "BossVault", "WildZone", "SurvivalPit", "StarVault",
+    },
+    CurrentOption = { "TrainingYard" },
+    MultipleOptions = false,
+    Flag    = "BattleMapChoice",
+    Callback = function(v)
+        BattleMapChoice = v[1] or v
+    end,
+})
+
+local BattleDelay = 5
+BattleTab:CreateInput({
+    Name                = "Battle Loop Delay (seconds)",
+    PlaceholderText     = "Default: 5",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        BattleDelay = tonumber(v) or 5
+    end,
+})
+
+local AutoBattle = false
+BattleTab:CreateToggle({
+    Name         = "Auto Battle Loop",
+    CurrentValue = false,
+    Flag         = "AutoBattle",
+    Callback     = function(v)
+        AutoBattle = v
+        if AutoBattle then
+            StartManagedLoop("AutoBattle", function() return AutoBattle end, function()
+                -- 1. Check current battle state
+                local stateOk, state = pcall(function()
+                    return GetBattleState:InvokeServer()
+                end)
+
+                if stateOk and typeof(state) == "table" then
+                    -- If there's a completed result, collect it
+                    if typeof(state.completedResult) == "table" then
+                        pcall(function()
+                            AcknowledgeBattleResult:InvokeServer({ deferBoxRewards = true })
+                        end)
+                        return 1
+                    end
+
+                    -- If a battle is active, wait for it
+                    if typeof(state.activeBattle) == "table" then
+                        return 3
+                    end
+                end
+
+                -- 2. Request battle maps
+                local mapsOk, mapsResult = pcall(function()
+                    return RequestBattleMaps:InvokeServer()
+                end)
+
+                if not mapsOk or typeof(mapsResult) ~= "table" or mapsResult.ok ~= true then
+                    return BattleDelay
+                end
+
+                -- 3. Get inventory for battle slots
+                local invOk, inv = pcall(function()
+                    return GetInventorySnapshot:InvokeServer()
+                end)
+
+                -- Build simple slot table (use first selected or default)
+                local slots = { "shelly" }
+                if invOk and typeof(inv) == "table" then
+                    if typeof(inv.selectedBattleSlots) == "table" then
+                        slots = inv.selectedBattleSlots
+                    end
+                end
+
+                -- 4. Start battle on chosen map
+                task.wait(0.3)
+                pcall(function()
+                    StartBattle:InvokeServer(BattleMapChoice, slots)
+                end)
+
+                return BattleDelay
+            end, 3)
+        end
+    end,
+})
+
+BattleTab:CreateSection("Auto Collect Results")
+
+local AutoCollectResults = false
+BattleTab:CreateToggle({
+    Name         = "Auto Collect Battle Results",
+    CurrentValue = false,
+    Flag         = "AutoCollectResults",
+    Callback     = function(v)
+        AutoCollectResults = v
+        if AutoCollectResults then
+            StartManagedLoop("AutoCollectResults", function() return AutoCollectResults end, function()
+                local stateOk, state = pcall(function()
+                    return GetBattleState:InvokeServer()
+                end)
+                if stateOk and typeof(state) == "table" and typeof(state.completedResult) == "table" then
+                    pcall(function()
+                        AcknowledgeBattleResult:InvokeServer({ deferBoxRewards = true })
+                    end)
+                end
+                return 3
+            end, 3)
+        end
+    end,
+})
+
+-- ============================================================
+--  DICE TAB
+-- ============================================================
+DiceTab:CreateSection("Auto Roll Dice")
+
+local DiceKind = "regular"
+DiceTab:CreateDropdown({
+    Name    = "Dice Type",
+    Options = { "regular", "golden", "mythical" },
+    CurrentOption = { "regular" },
+    MultipleOptions = false,
+    Flag    = "DiceKind",
+    Callback = function(v)
+        DiceKind = v[1] or v
+    end,
+})
+
+local RollDelay = 1
+DiceTab:CreateInput({
     Name                = "Roll Delay (seconds)",
-    PlaceholderText     = "Default: 5  (e.g. 0.5 or 10)",
+    PlaceholderText     = "Default: 1",
     RemoveTextAfterFocusLost = false,
     Callback            = function(v)
         local n = tonumber(v)
@@ -173,17 +443,37 @@ RollTab:CreateInput({
 })
 
 local AutoRoll = false
-RollTab:CreateToggle({
-    Name         = "Auto Roll (Golden + Regular)",
+DiceTab:CreateToggle({
+    Name         = "Auto Roll Dice",
     CurrentValue = false,
     Flag         = "AutoRoll",
     Callback     = function(v)
         AutoRoll = v
         if AutoRoll then
             StartManagedLoop("AutoRoll", function() return AutoRoll end, function()
-                RollDice:InvokeServer("golden")
-                task.wait(0.1)
+                RollDice:InvokeServer(DiceKind)
+                return RollDelay
+            end, 1)
+        end
+    end,
+})
+
+DiceTab:CreateSection("Multi-Roll")
+
+local AutoRollAll = false
+DiceTab:CreateToggle({
+    Name         = "Auto Roll All Types",
+    CurrentValue = false,
+    Flag         = "AutoRollAll",
+    Callback     = function(v)
+        AutoRollAll = v
+        if AutoRollAll then
+            StartManagedLoop("AutoRollAll", function() return AutoRollAll end, function()
                 RollDice:InvokeServer("regular")
+                task.wait(0.5)
+                RollDice:InvokeServer("golden")
+                task.wait(0.5)
+                RollDice:InvokeServer("mythical")
                 return RollDelay
             end, 1)
         end
@@ -191,99 +481,208 @@ RollTab:CreateToggle({
 })
 
 -- ============================================================
---  REBIRTH TAB  –  Auto Rebirth  (PurchaseRebirth, no args)
+--  CODES TAB
 -- ============================================================
-RebirthTab:CreateSection("Auto Rebirth")
-RebirthTab:CreateLabel("Invokes PurchaseRebirth on a timer")
+CodesTab:CreateSection("Auto Redeem Codes")
 
-local RebirthDelay = 30
-RebirthTab:CreateInput({
-    Name                = "Rebirth Delay (seconds)",
-    PlaceholderText     = "Default: 30",
+local KnownCodes = {}
+CodesTab:CreateInput({
+    Name                = "Enter Codes (comma-separated)",
+    PlaceholderText     = "code1, code2, code3",
     RemoveTextAfterFocusLost = false,
     Callback            = function(v)
-        RebirthDelay = tonumber(v) or 30
+        KnownCodes = {}
+        for code in string.gmatch(v, "[^,%s]+") do
+            table.insert(KnownCodes, code)
+        end
     end,
 })
 
-local AutoRebirth = false
-RebirthTab:CreateToggle({
-    Name         = "Auto Rebirth",
-    CurrentValue = false,
-    Flag         = "AutoRebirth",
-    Callback     = function(v)
-        AutoRebirth = v
-        if AutoRebirth then
-            StartManagedLoop("AutoRebirth", function() return AutoRebirth end, function()
-                PurchaseRebirth:InvokeServer()
-                return RebirthDelay
-            end, 2)
+CodesTab:CreateButton({
+    Name     = "Redeem All Codes",
+    Callback = function()
+        for _, code in ipairs(KnownCodes) do
+            local ok, result = pcall(function()
+                return RedeemCode:InvokeServer(code)
+            end)
+            if ok and typeof(result) == "table" and result.ok == true then
+                Rayfield:Notify({
+                    Title   = "Code Redeemed",
+                    Content = "Successfully redeemed: " .. code,
+                    Duration = 3,
+                })
+            else
+                local msg = "Failed"
+                if typeof(result) == "table" and result.message then
+                    msg = result.message
+                end
+                Rayfield:Notify({
+                    Title   = "Code Failed",
+                    Content = code .. " - " .. msg,
+                    Duration = 3,
+                })
+            end
+            task.wait(1)
+        end
+    end,
+})
+
+CodesTab:CreateInput({
+    Name                = "Redeem Single Code",
+    PlaceholderText     = "Enter code...",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        if v == "" then return end
+        local ok, result = pcall(function()
+            return RedeemCode:InvokeServer(v)
+        end)
+        if ok and typeof(result) == "table" and result.ok == true then
+            Rayfield:Notify({
+                Title   = "Code Redeemed",
+                Content = "Successfully redeemed: " .. v,
+                Duration = 3,
+            })
+        else
+            local msg = "Failed"
+            if typeof(result) == "table" and result.message then
+                msg = result.message
+            end
+            Rayfield:Notify({
+                Title   = "Code Failed",
+                Content = v .. " - " .. msg,
+                Duration = 3,
+            })
         end
     end,
 })
 
 -- ============================================================
---  MACRO TAB  –  ClickerMax  (all-in-one, optimal order)
---
---  ORDER RATIONALE:
---    1. ClickPower upgrade  — boost each tap first
---    2. CoinGenerator upgrade — passive income
---    3. Auto tap            — earn with boosted value
---    4. Rebirth             — configurable timer for multipliers
+--  MACRO TAB  –  All-in-one macro
 -- ============================================================
-MacroTab:CreateSection("ClickerMax Macro")
-MacroTab:CreateLabel("Click → Upgrades → Rebirth")
+MacroTab:CreateSection("BrawlMax Macro")
+MacroTab:CreateLabel("Click → Upgrades → Rebirth → Battle → Dice")
 
-local MacroRunning      = false
-local MacroRebirthDelay = 60
-local MacroLastRebirth  = 0
+local MacroRunning       = false
+local MacroRebirthDelay  = 60
+local MacroLastRebirth   = 0
+local MacroDiceEnabled   = true
+local MacroBattleEnabled = true
+local MacroMapChoice     = "TrainingYard"
 
 MacroTab:CreateInput({
-    Name                = "Macro Rebirth Delay (s)",
+    Name                = "Macro Rebirth Interval (s)",
     PlaceholderText     = "Default: 60",
     RemoveTextAfterFocusLost = false,
     Callback            = function(v) MacroRebirthDelay = tonumber(v) or 60 end,
 })
 
 MacroTab:CreateToggle({
-    Name         = "ClickerMax Macro",
+    Name         = "Include Dice Rolls",
+    CurrentValue = true,
+    Flag         = "MacroDice",
+    Callback     = function(v) MacroDiceEnabled = v end,
+})
+
+MacroTab:CreateToggle({
+    Name         = "Include Auto Battle",
+    CurrentValue = true,
+    Flag         = "MacroBattle",
+    Callback     = function(v) MacroBattleEnabled = v end,
+})
+
+MacroTab:CreateDropdown({
+    Name    = "Macro Battle Map",
+    Options = {
+        "TrainingYard", "CoinCave", "GemTunnel", "PowerPit",
+        "ScrapYard", "TrophyTrail", "HeistRoom", "AmbushValley",
+        "BossVault", "WildZone", "SurvivalPit", "StarVault",
+    },
+    CurrentOption = { "TrainingYard" },
+    MultipleOptions = false,
+    Flag    = "MacroMapChoice",
+    Callback = function(v) MacroMapChoice = v[1] or v end,
+})
+
+MacroTab:CreateToggle({
+    Name         = "BrawlMax Macro",
     CurrentValue = false,
-    Flag         = "ClickerMaxMacro",
+    Flag         = "BrawlMaxMacro",
     Callback     = function(v)
         MacroRunning     = v
         MacroLastRebirth = os.clock()
 
         if MacroRunning then
-            StartManagedLoop("ClickerMaxMacro", function() return MacroRunning end, function()
+            StartManagedLoop("BrawlMaxMacro", function() return MacroRunning end, function()
                 local now = os.clock()
 
-                -- 1. Buy ClickPower
-                PurchaseUpgrade:InvokeServer("ClickPower", "single")
-                task.wait(0.05)
+                -- 1. Buy all upgrades (max)
+                for _, entry in ipairs(UpgradeList) do
+                    if not MacroRunning then break end
+                    PurchaseUpgrade:InvokeServer(entry[1], "max")
+                    task.wait(0.05)
+                end
 
-                -- 2. Buy CoinGenerator
-                PurchaseUpgrade:InvokeServer("CoinGenerator", "single")
-                task.wait(0.05)
-
-                -- 3. Tap / click
+                -- 2. Tap
                 ClickerTap:FireServer()
                 task.wait(0.05)
 
-                -- 4. Rebirth (every MacroRebirthDelay seconds)
+                -- 3. Rebirth on timer
                 if now - MacroLastRebirth >= MacroRebirthDelay then
                     PurchaseRebirth:InvokeServer()
                     MacroLastRebirth = now
-                    task.wait(0.5)
+                    task.wait(0.3)
                 end
 
-                return 0   -- loop as fast as possible
+                -- 4. Roll dice
+                if MacroDiceEnabled then
+                    pcall(function() RollDice:InvokeServer("regular") end)
+                    task.wait(0.1)
+                    pcall(function() RollDice:InvokeServer("golden") end)
+                    task.wait(0.1)
+                    pcall(function() RollDice:InvokeServer("mythical") end)
+                    task.wait(0.1)
+                end
+
+                -- 5. Battle cycle
+                if MacroBattleEnabled then
+                    local stateOk, state = pcall(function()
+                        return GetBattleState:InvokeServer()
+                    end)
+                    if stateOk and typeof(state) == "table" then
+                        if typeof(state.completedResult) == "table" then
+                            pcall(function()
+                                AcknowledgeBattleResult:InvokeServer({ deferBoxRewards = true })
+                            end)
+                        elseif not state.activeBattle then
+                            pcall(function() RequestBattleMaps:InvokeServer() end)
+                            task.wait(0.3)
+                            local invOk, inv = pcall(function()
+                                return GetInventorySnapshot:InvokeServer()
+                            end)
+                            local slots = { "shelly" }
+                            if invOk and typeof(inv) == "table" and typeof(inv.selectedBattleSlots) == "table" then
+                                slots = inv.selectedBattleSlots
+                            end
+                            pcall(function()
+                                StartBattle:InvokeServer(MacroMapChoice, slots)
+                            end)
+                        end
+                    end
+                end
+
+                -- 6. Claim rewards
+                pcall(function() ClaimDailyReward:InvokeServer() end)
+                pcall(function() ClaimAchievementReward:InvokeServer() end)
+                pcall(function() ClaimTrophyRoadRankUpReward:InvokeServer() end)
+
+                return 0.1
             end, 1)
         end
     end,
 })
 
 -- ============================================================
---  MISC TAB  –  Anti-Idle
+--  MISC TAB
 -- ============================================================
 MiscTab:CreateSection("Anti-Idle")
 
@@ -300,6 +699,96 @@ else
 end
 
 MiscTab:CreateLabel("Anti-idle is active automatically")
+
+MiscTab:CreateSection("Auto Battle Settings (Server)")
+
+MiscTab:CreateButton({
+    Name     = "Set Auto Battle Mode: Best Win Chance",
+    Callback = function()
+        pcall(function()
+            SetPlayerSettings:InvokeServer({ autoBattleMode = "winChance" })
+        end)
+        Rayfield:Notify({ Title = "Settings", Content = "Auto Battle mode set to Win Chance", Duration = 2 })
+    end,
+})
+
+MiscTab:CreateButton({
+    Name     = "Set Auto Battle Mode: Best Map",
+    Callback = function()
+        pcall(function()
+            SetPlayerSettings:InvokeServer({ autoBattleMode = "bestMap" })
+        end)
+        Rayfield:Notify({ Title = "Settings", Content = "Auto Battle mode set to Best Map", Duration = 2 })
+    end,
+})
+
+MiscTab:CreateButton({
+    Name     = "Enable Server Auto Battle",
+    Callback = function()
+        pcall(function()
+            SetPlayerSettings:InvokeServer({ autoBattleEnabled = true })
+        end)
+        player:SetAttribute("AutoBattleEnabled", true)
+        Rayfield:Notify({ Title = "Settings", Content = "Server Auto Battle enabled", Duration = 2 })
+    end,
+})
+
+MiscTab:CreateButton({
+    Name     = "Enable Server Auto Collect",
+    Callback = function()
+        pcall(function()
+            SetPlayerSettings:InvokeServer({ autoBattleAutoCollectEnabled = true })
+        end)
+        player:SetAttribute("AutoBattleAutoCollectActive", true)
+        Rayfield:Notify({ Title = "Settings", Content = "Server Auto Collect enabled", Duration = 2 })
+    end,
+})
+
+MiscTab:CreateSection("Quick Actions")
+
+MiscTab:CreateButton({
+    Name     = "Force Collect Battle Result",
+    Callback = function()
+        local ok, result = pcall(function()
+            return AcknowledgeBattleResult:InvokeServer({ deferBoxRewards = true })
+        end)
+        if ok and typeof(result) == "table" and result.ok == true then
+            Rayfield:Notify({ Title = "Collected", Content = "Battle rewards collected!", Duration = 2 })
+        else
+            Rayfield:Notify({ Title = "No Result", Content = "No battle result to collect", Duration = 2 })
+        end
+    end,
+})
+
+MiscTab:CreateButton({
+    Name     = "Claim Daily Reward Now",
+    Callback = function()
+        pcall(function() ClaimDailyReward:InvokeServer() end)
+        Rayfield:Notify({ Title = "Daily", Content = "Claimed daily reward", Duration = 2 })
+    end,
+})
+
+MiscTab:CreateButton({
+    Name     = "Claim All Achievements Now",
+    Callback = function()
+        for i = 1, 10 do
+            pcall(function() ClaimAchievementReward:InvokeServer() end)
+            task.wait(0.3)
+        end
+        Rayfield:Notify({ Title = "Achievements", Content = "Attempted to claim achievements", Duration = 2 })
+    end,
+})
+
+MiscTab:CreateButton({
+    Name     = "Claim Trophy Road Now",
+    Callback = function()
+        for i = 1, 10 do
+            pcall(function() ClaimTrophyRoadRankUpReward:InvokeServer() end)
+            task.wait(0.3)
+        end
+        Rayfield:Notify({ Title = "Trophy Road", Content = "Attempted to claim trophy road rewards", Duration = 2 })
+    end,
+})
 
 -- ── Load saved config ─────────────────────────────────────────
 Rayfield:LoadConfiguration()
