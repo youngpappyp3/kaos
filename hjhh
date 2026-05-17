@@ -1177,7 +1177,7 @@ local function CanUpgradeBrawler(brawlerId, state, targetLevel)
 
     local costs = GetBrawlerUpgradeCost(brawlerId, state)
     if not costs then
-        return false
+        return true
     end
     return GetCoins() >= costs.coins and GetPowerPoints() >= costs.powerPoints
 end
@@ -1201,9 +1201,6 @@ end
 
 local function ScoreBrawlerUpgradeCandidate(brawlerId, state, mode, targetLevel)
     local costs = GetBrawlerUpgradeCost(brawlerId, state)
-    if not costs then
-        return nil
-    end
 
     local level = math.max(1, math.floor(tonumber(state.level) or 1))
     local selectedSlots = GetBattleSlots()
@@ -1221,7 +1218,7 @@ local function ScoreBrawlerUpgradeCandidate(brawlerId, state, mode, targetLevel)
 
     local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
     local rarityBonus = BrawlerRarityScore[brawler and brawler.rarity or ""] or 0
-    local totalCost = math.max(1, costs.coins + costs.powerPoints * 10)
+    local totalCost = costs and math.max(1, costs.coins + costs.powerPoints * 10) or 1
     local targetBonus = math.max(0, (tonumber(targetLevel) or 11) - level)
     local baseScore = GetBrawlerBaseScore(brawlerId, state) + rarityBonus * 1000 + targetBonus
 
@@ -1983,13 +1980,14 @@ end
 local function DebugBrawlerUpgradeState()
     local _, inventory = GetBattleSlots()
     local remoteText = PurchaseBrawlerUpgrade and (PurchaseBrawlerUpgrade.ClassName or "exists") or "missing"
-    local moduleText = BrawlerProgressionConfig and "loaded" or "missing"
+    local moduleText = BrawlerProgressionConfig and "loaded" or "missing/server-check"
     local coins = GetCoins()
     local powerPoints = GetPowerPoints()
     local unlocked = 0
     local matched = 0
     local affordable = 0
     local blockedByCost = 0
+    local costUnknown = 0
     local maxedOrTarget = 0
     local firstBlocked = nil
 
@@ -2003,7 +2001,10 @@ local function DebugBrawlerUpgradeState()
                     local level = math.max(1, math.floor(tonumber(state.level) or 1))
                     local maxLevel = tonumber(BrawlerProgressionConfig and BrawlerProgressionConfig.MaxLevel) or 11
                     local wantedLevel = math.clamp(math.floor(tonumber(BrawlerUpgradeTargetLevel) or maxLevel), 1, maxLevel)
-                    if CanUpgradeBrawler(brawlerId, state, BrawlerUpgradeTargetLevel) then
+                    if not costs and level < maxLevel and level < wantedLevel then
+                        costUnknown += 1
+                        affordable += 1
+                    elseif CanUpgradeBrawler(brawlerId, state, BrawlerUpgradeTargetLevel) then
                         affordable += 1
                     elseif costs and level < maxLevel and level < wantedLevel then
                         blockedByCost += 1
@@ -2032,7 +2033,7 @@ local function DebugBrawlerUpgradeState()
     )
     local candidateText = candidateId and GetBrawlerDisplayName(candidateId) or tostring(reason or "-")
     local summary = string.format(
-        "remote=%s | module=%s | coins=%d | pp=%d | unlocked=%d | matched=%d | affordable=%d | costBlocked=%d | max/target=%d | candidate=%s",
+        "remote=%s | module=%s | coins=%d | pp=%d | unlocked=%d | matched=%d | affordable=%d | costUnknown=%d | costBlocked=%d | max/target=%d | candidate=%s",
         remoteText,
         moduleText,
         coins,
@@ -2040,6 +2041,7 @@ local function DebugBrawlerUpgradeState()
         unlocked,
         matched,
         affordable,
+        costUnknown,
         blockedByCost,
         maxedOrTarget,
         candidateText
