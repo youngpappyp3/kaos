@@ -86,8 +86,8 @@ local Window = Rayfield:CreateWindow({
     LoadingTitle    = "Brawl RNG",
     LoadingSubtitle = "Loading...",
     ConfigurationSaving = {
-        Enabled    = true,
-        FolderName = nil,
+        Enabled    = false,
+        FolderName = "BrawlRNGHub",
         FileName   = "BrawlRNGHubConfig",
     },
     KeySystem = false,
@@ -159,6 +159,16 @@ local function SafeNotify(data)
             HubWarn("Notify", err)
         end
     end
+end
+
+local function GetDropdownChoice(value, fallback)
+    if typeof(value) == "table" then
+        return value[1] or fallback
+    end
+    if value ~= nil then
+        return value
+    end
+    return fallback
 end
 
 local function InvalidateInventorySnapshot()
@@ -353,6 +363,16 @@ local BrawlerRarityScore = {
     UltraLegendary = 7,
 }
 
+local BrawlerUpgradeMinRarityScore = {
+    Any = 0,
+    Rare = 2,
+    SuperRare = 3,
+    Epic = 4,
+    Mythic = 5,
+    Legendary = 6,
+    UltraLegendary = 7,
+}
+
 local GetMapPreview
 local OpenAllDeferredBattleRewards
 
@@ -367,6 +387,15 @@ local function GetBrawlerClassKey(brawlerId)
         classKey = BrawlerLibrary.ClassById[brawlerId]
     end
     return classKey
+end
+
+local function GetBrawlerRarityKey(brawlerId)
+    local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
+    return brawler and brawler.rarity or nil
+end
+
+local function GetBrawlerRarityScore(brawlerId)
+    return BrawlerRarityScore[GetBrawlerRarityKey(brawlerId) or ""] or 0
 end
 
 local function GetMapRecommendedClasses(mapId)
@@ -386,6 +415,33 @@ local function GetMapRecommendedClasses(mapId)
         return map.recommendedClasses
     end
     return {}
+end
+
+local function IsBrawlerRecommendedForCurrentMap(brawlerId)
+    local classKey = GetBrawlerClassKey(brawlerId)
+    if not classKey then
+        return false
+    end
+
+    for _, recommendedClass in ipairs(GetMapRecommendedClasses(LastBattleRoleMap or BattleMapChoice)) do
+        if classKey == recommendedClass then
+            return true
+        end
+    end
+    return false
+end
+
+local function IsBrawlerInBattleSlots(brawlerId, inventory)
+    if typeof(inventory) ~= "table" or typeof(inventory.selectedBattleSlots) ~= "table" then
+        return false
+    end
+
+    for _, slotId in ipairs(inventory.selectedBattleSlots) do
+        if slotId == brawlerId then
+            return true
+        end
+    end
+    return false
 end
 
 local function GetBattleSlots()
@@ -1121,6 +1177,23 @@ local function CanUpgradeBrawler(brawlerId, state, targetLevel)
     return GetCoins() >= costs.coins and GetPowerPoints() >= costs.powerPoints
 end
 
+local function IsBrawlerAllowedByUpgradeFilter(brawlerId, state, inventory, minRarity, includeRoleMatches)
+    if typeof(state) ~= "table" or state.unlocked ~= true then
+        return false
+    end
+
+    local minScore = BrawlerUpgradeMinRarityScore[minRarity or "Epic"] or BrawlerUpgradeMinRarityScore.Epic
+    if minScore <= 0 or GetBrawlerRarityScore(brawlerId) >= minScore then
+        return true
+    end
+
+    if includeRoleMatches == true then
+        return IsBrawlerRecommendedForCurrentMap(brawlerId) or IsBrawlerInBattleSlots(brawlerId, inventory)
+    end
+
+    return false
+end
+
 local function ScoreBrawlerUpgradeCandidate(brawlerId, state, mode, targetLevel)
     local costs = GetBrawlerUpgradeCost(brawlerId, state)
     if not costs then
@@ -1128,7 +1201,6 @@ local function ScoreBrawlerUpgradeCandidate(brawlerId, state, mode, targetLevel)
     end
 
     local level = math.max(1, math.floor(tonumber(state.level) or 1))
-    local classKey = GetBrawlerClassKey(brawlerId)
     local selectedSlots = GetBattleSlots()
     local selectedBonus = 0
     if typeof(selectedSlots) == "table" then
@@ -1140,19 +1212,17 @@ local function ScoreBrawlerUpgradeCandidate(brawlerId, state, mode, targetLevel)
         end
     end
 
-    local roleBonus = 0
-    for _, recommendedClass in ipairs(GetMapRecommendedClasses(LastBattleRoleMap or BattleMapChoice)) do
-        if classKey == recommendedClass then
-            roleBonus = 250000
-            break
-        end
-    end
+    local roleBonus = IsBrawlerRecommendedForCurrentMap(brawlerId) and 350000 or 0
 
     local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
     local rarityBonus = BrawlerRarityScore[brawler and brawler.rarity or ""] or 0
     local totalCost = math.max(1, costs.coins + costs.powerPoints * 10)
     local targetBonus = math.max(0, (tonumber(targetLevel) or 11) - level)
     local baseScore = GetBrawlerBaseScore(brawlerId, state) + rarityBonus * 1000 + targetBonus
+
+    if mode == "Epic+ + Roles" then
+        return selectedBonus + roleBonus + rarityBonus * 100000 + (100 - level) * 1000 + baseScore / totalCost
+    end
 
     if mode == "Battle Slots" then
         return selectedBonus + roleBonus + baseScore / totalCost
@@ -1169,25 +1239,56 @@ local function ScoreBrawlerUpgradeCandidate(brawlerId, state, mode, targetLevel)
     return (baseScore + roleBonus + selectedBonus) / totalCost
 end
 
-local function ChooseBrawlerUpgradeCandidate(mode, targetLevel)
+local function ChooseBrawlerUpgradeCandidate(mode, targetLevel, minRarity, includeRoleMatches)
     local _, inventory = GetBattleSlots()
     if typeof(inventory) ~= "table" or typeof(inventory.byId) ~= "table" then
-        return nil
+        return nil, "inventory unavailable"
     end
 
     local best = nil
+    local matchingLockedByCost = 0
+    local matchingMaxedOrTargeted = 0
+    local matchingFiltered = 0
     for brawlerId, state in pairs(inventory.byId) do
-        if typeof(brawlerId) == "string" and CanUpgradeBrawler(brawlerId, state, targetLevel) then
-            local score = ScoreBrawlerUpgradeCandidate(brawlerId, state, mode, targetLevel)
-            if score and (not best or score > best.score) then
-                best = {
-                    id = brawlerId,
-                    score = score,
-                }
+        if typeof(brawlerId) == "string" and typeof(state) == "table" and state.unlocked == true then
+            if IsBrawlerAllowedByUpgradeFilter(brawlerId, state, inventory, minRarity, includeRoleMatches) then
+                matchingFiltered += 1
+                if CanUpgradeBrawler(brawlerId, state, targetLevel) then
+                    local score = ScoreBrawlerUpgradeCandidate(brawlerId, state, mode, targetLevel)
+                    if score and (not best or score > best.score) then
+                        best = {
+                            id = brawlerId,
+                            score = score,
+                        }
+                    end
+                else
+                    local costs = GetBrawlerUpgradeCost(brawlerId, state)
+                    local level = math.max(1, math.floor(tonumber(state.level) or 1))
+                    local maxLevel = tonumber(BrawlerProgressionConfig and BrawlerProgressionConfig.MaxLevel) or 11
+                    local wantedLevel = math.clamp(math.floor(tonumber(targetLevel) or maxLevel), 1, maxLevel)
+                    if costs and level < maxLevel and level < wantedLevel then
+                        matchingLockedByCost += 1
+                    else
+                        matchingMaxedOrTargeted += 1
+                    end
+                end
             end
         end
     end
-    return best and best.id or nil
+
+    if best then
+        return best.id, "ready"
+    end
+    if matchingFiltered <= 0 then
+        return nil, "no unlocked brawlers match the filter"
+    end
+    if matchingLockedByCost > 0 then
+        return nil, "not enough Coins or PowerPoints"
+    end
+    if matchingMaxedOrTargeted > 0 then
+        return nil, "matching brawlers are maxed or at target"
+    end
+    return nil, "no upgrade candidate"
 end
 
 local function SmartPurchaseBrawlerUpgrade(brawlerId)
@@ -1204,7 +1305,7 @@ local function SmartPurchaseBrawlerUpgrade(brawlerId)
             InvalidateInventorySnapshot()
         end
     end
-    return ok, result
+    return ok and (typeof(result) ~= "table" or result.ok ~= false), result
 end
 
 local function NormalizeDiceKind(kind)
@@ -1643,7 +1744,7 @@ UpgradeTab:CreateDropdown({
     MultipleOptions = false,
     Flag    = "SmartUpgradeMode",
     Callback = function(v)
-        SmartUpgradeMode = v[1] or v
+        SmartUpgradeMode = GetDropdownChoice(v, SmartUpgradeMode)
     end,
 })
 
@@ -1740,19 +1841,88 @@ UpgradeTab:CreateToggle({
 
 UpgradeTab:CreateSection("Brawler Upgrades")
 
-local BrawlerUpgradeMode = "Battle Slots"
+local BrawlerUpgradeMode = "Epic+ + Roles"
+local BrawlerUpgradeMinRarity = "Epic"
+local BrawlerUpgradeIncludeRoles = true
 local BrawlerUpgradeTargetLevel = 11
 local BrawlerUpgradeBatchSize = 3
 local BrawlerUpgradeDelay = 2
+local BrawlerUpgradeStatusLabel = UpgradeTab:CreateLabel("Brawler Upgrades: Idle")
+
+local function SetBrawlerUpgradeStatus(text)
+    SetRayfieldLabel(BrawlerUpgradeStatusLabel, "Brawler Upgrades: " .. tostring(text or "-"))
+end
+
+local function GetBrawlerDisplayName(brawlerId)
+    local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
+    return brawler and brawler.name or tostring(brawlerId)
+end
+
+local function RunBrawlerUpgradeBatch()
+    local upgraded = 0
+    local lastName = nil
+    local lastReason = nil
+
+    for _ = 1, BrawlerUpgradeBatchSize do
+        local brawlerId, reason = ChooseBrawlerUpgradeCandidate(
+            BrawlerUpgradeMode,
+            BrawlerUpgradeTargetLevel,
+            BrawlerUpgradeMinRarity,
+            BrawlerUpgradeIncludeRoles
+        )
+        if not brawlerId then
+            lastReason = reason
+            break
+        end
+
+        local ok, result = SmartPurchaseBrawlerUpgrade(brawlerId)
+        if not ok then
+            lastReason = typeof(result) == "table" and result.message or "upgrade failed"
+            break
+        end
+
+        upgraded += 1
+        lastName = GetBrawlerDisplayName(brawlerId)
+        task.wait(0.15)
+    end
+
+    if upgraded > 0 then
+        SetBrawlerUpgradeStatus("Upgraded " .. tostring(upgraded) .. " | Last: " .. tostring(lastName or "-"))
+        return true
+    end
+
+    SetBrawlerUpgradeStatus(tostring(lastReason or "nothing to upgrade"))
+    return false
+end
 
 UpgradeTab:CreateDropdown({
     Name    = "Brawler Upgrade Priority",
-    Options = { "Battle Slots", "Recommended Roles", "Best Value", "Lowest Level" },
-    CurrentOption = { "Battle Slots" },
+    Options = { "Epic+ + Roles", "Battle Slots", "Recommended Roles", "Best Value", "Lowest Level" },
+    CurrentOption = { "Epic+ + Roles" },
     MultipleOptions = false,
     Flag    = "BrawlerUpgradeMode",
     Callback = function(v)
-        BrawlerUpgradeMode = v[1] or v
+        BrawlerUpgradeMode = GetDropdownChoice(v, BrawlerUpgradeMode)
+    end,
+})
+
+UpgradeTab:CreateDropdown({
+    Name    = "Minimum Brawler Rarity",
+    Options = { "Epic", "Mythic", "Legendary", "UltraLegendary", "SuperRare", "Rare", "Any" },
+    CurrentOption = { "Epic" },
+    MultipleOptions = false,
+    Flag    = "BrawlerUpgradeMinRarity",
+    Callback = function(v)
+        BrawlerUpgradeMinRarity = GetDropdownChoice(v, BrawlerUpgradeMinRarity)
+    end,
+})
+
+UpgradeTab:CreateToggle({
+    Name         = "Include Current Map Roles",
+    CurrentValue = true,
+    Flag         = "BrawlerUpgradeIncludeRoles",
+    Callback     = function(v)
+        BrawlerUpgradeIncludeRoles = v == true
     end,
 })
 
@@ -1785,17 +1955,10 @@ UpgradeTab:CreateInput({
 })
 
 UpgradeTab:CreateButton({
-    Name     = "Upgrade Best Brawlers Once",
+    Name     = "Upgrade Brawler Batch Now",
     Callback = function()
         task.spawn(function()
-            for _ = 1, BrawlerUpgradeBatchSize do
-                local brawlerId = ChooseBrawlerUpgradeCandidate(BrawlerUpgradeMode, BrawlerUpgradeTargetLevel)
-                if not brawlerId then
-                    break
-                end
-                SmartPurchaseBrawlerUpgrade(brawlerId)
-                task.wait(0.15)
-            end
+            RunBrawlerUpgradeBatch()
         end)
     end,
 })
@@ -1808,18 +1971,13 @@ UpgradeTab:CreateToggle({
     Callback     = function(v)
         AutoUpgradeBestBrawlers = v
         if AutoUpgradeBestBrawlers then
+            SetBrawlerUpgradeStatus("Running")
             StartManagedLoop("AutoUpgradeBestBrawlers", function() return AutoUpgradeBestBrawlers end, function()
-                for _ = 1, BrawlerUpgradeBatchSize do
-                    if not AutoUpgradeBestBrawlers then break end
-                    local brawlerId = ChooseBrawlerUpgradeCandidate(BrawlerUpgradeMode, BrawlerUpgradeTargetLevel)
-                    if not brawlerId then
-                        break
-                    end
-                    SmartPurchaseBrawlerUpgrade(brawlerId)
-                    task.wait(0.15)
-                end
+                RunBrawlerUpgradeBatch()
                 return BrawlerUpgradeDelay
             end, 2)
+        else
+            SetBrawlerUpgradeStatus("Idle")
         end
     end,
 })
@@ -1890,7 +2048,7 @@ BattleTab:CreateDropdown({
     MultipleOptions = false,
     Flag    = "BattleMapChoice",
     Callback = function(v)
-        BattleMapChoice = v[1] or v
+        BattleMapChoice = GetDropdownChoice(v, BattleMapChoice)
         if typeof(BattleMapChoice) == "string" then
             LastBattleRoleMap = BattleMapChoice
         end
@@ -1904,7 +2062,7 @@ BattleTab:CreateDropdown({
     MultipleOptions = false,
     Flag    = "BattleChoiceMode",
     Callback = function(v)
-        BattleChoiceMode = v[1] or v
+        BattleChoiceMode = GetDropdownChoice(v, BattleChoiceMode)
     end,
 })
 
@@ -2006,7 +2164,7 @@ DiceTab:CreateDropdown({
     MultipleOptions = false,
     Flag    = "DiceKind",
     Callback = function(v)
-        DiceKind = v[1] or v
+        DiceKind = GetDropdownChoice(v, DiceKind)
     end,
 })
 
@@ -2086,7 +2244,7 @@ RankedTab:CreateDropdown({
     MultipleOptions = false,
     Flag    = "RankedBrawlerMode",
     Callback = function(v)
-        RankedBrawlerMode = v[1] or v
+        RankedBrawlerMode = GetDropdownChoice(v, RankedBrawlerMode)
     end,
 })
 
@@ -2439,7 +2597,7 @@ MacroTab:CreateDropdown({
     CurrentOption = { "TrainingYard" },
     MultipleOptions = false,
     Flag    = "MacroMapChoice",
-    Callback = function(v) MacroMapChoice = v[1] or v end,
+    Callback = function(v) MacroMapChoice = GetDropdownChoice(v, MacroMapChoice) end,
 })
 
 MacroTab:CreateDropdown({
@@ -2448,7 +2606,7 @@ MacroTab:CreateDropdown({
     CurrentOption = { "Best Win Chance" },
     MultipleOptions = false,
     Flag    = "MacroBattleChoiceMode",
-    Callback = function(v) MacroBattleChoiceMode = v[1] or v end,
+    Callback = function(v) MacroBattleChoiceMode = GetDropdownChoice(v, MacroBattleChoiceMode) end,
 })
 
 MacroTab:CreateToggle({
