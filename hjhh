@@ -42,8 +42,6 @@ local RankedMatchFinish    = Remotes:FindFirstChild("RankedMatchFinish") or Remo
 local RankedRewardRoll     = Remotes:FindFirstChild("RankedRewardRoll") or Remotes:WaitForChild("RankedRewardRoll", 5)
 -- OpenBox: may be RemoteEvent or RemoteFunction — loaded optionally
 local OpenBox              = Remotes:FindFirstChild("OpenBox") or Remotes:FindFirstChild("ClaimBoxReward") or Remotes:FindFirstChild("OpenStarrDrop")
-local OpenDeferredBattleReward = Remotes:FindFirstChild("OpenDeferredBattleReward")
-local UpgradeBrawler       = Remotes:FindFirstChild("UpgradeBrawler") or Remotes:FindFirstChild("BrawlerUpgrade") or Remotes:FindFirstChild("UpgradeBrawlerLevel")
 
 local function SafeRequireModule(...)
     local node = ReplicatedStorage
@@ -69,29 +67,6 @@ local BattleConfig = SafeRequireModule("UI", "Modules", "BattleConfig")
 local UpgradesConfig = SafeRequireModule("UI", "Modules", "UpgradesConfig")
 local AchievementConfig = SafeRequireModule("UI", "Modules", "AchievementConfig")
 local BrawlerLibrary = SafeRequireModule("UI", "Modules", "BrawlerLibrary")
-local BrawlerProgressionConfig = SafeRequireModule("UI", "Modules", "BrawlerProgressionConfig")
-
--- Box IDs sourced directly from BattleConfig.BoxOrder (safe fallback list)
-local KnownBoxIds = {}
-if BattleConfig and typeof(BattleConfig.BoxOrder) == "table" then
-    for _, id in ipairs(BattleConfig.BoxOrder) do
-        KnownBoxIds[#KnownBoxIds + 1] = id
-    end
-else
-    KnownBoxIds = {
-        "BrawlerBox", "MegaBox", "SuperBigBox", "SuperMegaBox",
-        "SuperOmegaBox", "SuperUltraBox", "GlowyBox",
-    }
-end
--- Append special drop IDs
-if BattleConfig then
-    if BattleConfig.StarrDropBoxId then
-        KnownBoxIds[#KnownBoxIds + 1] = BattleConfig.StarrDropBoxId
-    end
-    if BattleConfig.ChaosDropBoxId then
-        KnownBoxIds[#KnownBoxIds + 1] = BattleConfig.ChaosDropBoxId
-    end
-end
 
 -- Rayfield
 local RayfieldSource = game:HttpGet("https://sirius.menu/rayfield")
@@ -428,55 +403,8 @@ local function ScoreBattleSlots(mapId, slots, inventory)
     return score, nil
 end
 
-local function GetMapRecommendedClasses(mapId)
-    local mapCfg = GetMapConfig(mapId)
-    if mapCfg and typeof(mapCfg.recommendedClasses) == "table" then
-        local set = {}
-        for _, cls in ipairs(mapCfg.recommendedClasses) do
-            set[cls] = true
-        end
-        return set
-    end
-    return {}
-end
-
-local function GetBrawlerBaseScoreForMap(brawlerId, state, recommendedClassSet)
-    local baseScore = GetBrawlerBaseScore(brawlerId, state)
-    -- Add bonus if this brawler's class matches a recommended class for the map
-    local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId]
-    if brawler and brawler.classKey and recommendedClassSet[brawler.classKey] then
-        baseScore = baseScore + 500000  -- large bonus to prefer role-matched brawlers
-    end
-    return baseScore
-end
-
-local function GetUnlockedBrawlerCandidatesForMap(inventory, mapId)
-    local recClasses = GetMapRecommendedClasses(mapId)
-    local candidates = {}
-    if typeof(inventory) ~= "table" or typeof(inventory.byId) ~= "table" then
-        return candidates
-    end
-    for brawlerId, state in pairs(inventory.byId) do
-        if typeof(brawlerId) == "string" and typeof(state) == "table" and state.unlocked == true then
-            candidates[#candidates + 1] = {
-                id = brawlerId,
-                score = GetBrawlerBaseScoreForMap(brawlerId, state, recClasses),
-            }
-        end
-    end
-    table.sort(candidates, function(a, b) return a.score > b.score end)
-    local trimmed = {}
-    for i = 1, math.min(#candidates, 10) do
-        trimmed[#trimmed + 1] = candidates[i]
-    end
-    return trimmed
-end
-
 local function ChooseBestBattleSlotsForMap(mapId, inventory)
-    local candidates = GetUnlockedBrawlerCandidatesForMap(inventory, mapId)
-    if #candidates <= 0 then
-        candidates = GetUnlockedBrawlerCandidates(inventory)
-    end
+    local candidates = GetUnlockedBrawlerCandidates(inventory)
     if #candidates <= 0 then
         return { "shelly", false, false }, nil
     end
@@ -488,16 +416,6 @@ local function ChooseBestBattleSlotsForMap(mapId, inventory)
     local function consider(slots)
         local padded = { slots[1] or false, slots[2] or false, slots[3] or false }
         local score, preview = ScoreBattleSlots(mapId, padded, inventory)
-        -- Add class bonus to combined score
-        local recClasses = GetMapRecommendedClasses(mapId)
-        for _, brawlerId in ipairs(padded) do
-            if typeof(brawlerId) == "string" then
-                local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId]
-                if brawler and brawler.classKey and recClasses[brawler.classKey] then
-                    score = score + 50000
-                end
-            end
-        end
         if not bestScore or score > bestScore then
             bestScore = score
             bestSlots = padded
@@ -1312,75 +1230,6 @@ AutoTab:CreateToggle({
 })
 
 -- ============================================================
---  BRAWLER AUTO UPGRADE (helper functions)
--- ============================================================
-
--- Returns sorted list of unlocked brawlers that CAN be upgraded (have coins+powerpoints)
-local function GetUpgradeableBrawlers(inventory, maxCount)
-    if not BrawlerProgressionConfig then return {} end
-    if typeof(inventory) ~= "table" or typeof(inventory.byId) ~= "table" then return {} end
-    local coins     = GetCoins()
-    local ppValue   = inventory.currencies and tonumber(inventory.currencies.PowerPoints)
-        or inventory.PowerPoints and tonumber(inventory.PowerPoints)
-        or GetPlayerNumberValue("PowerPoints")
-    local currency = { Coins = coins, PowerPoints = ppValue or 0 }
-    local upgradeable = {}
-    for brawlerId, state in pairs(inventory.byId) do
-        if typeof(state) == "table" and state.unlocked == true then
-            local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId]
-            local rarity  = brawler and brawler.rarity or "Rare"
-            local level   = tonumber(state.level) or 1
-            -- Check max level (11 from BrawlerProgressionConfig.MaxLevel)
-            local maxLevel = BrawlerProgressionConfig.MaxLevel or 11
-            if level < maxLevel then
-                local canUpgrade = pcall(function()
-                    return BrawlerProgressionConfig.canUpgradeBrawlerState(state, currency, rarity)
-                end)
-                if not canUpgrade then
-                    canUpgrade = BrawlerProgressionConfig.canUpgradeBrawlerState(state, currency, rarity)
-                end
-                if canUpgrade then
-                    -- Score: higher rarity & level = upgrade first
-                    local rarityScore = BrawlerRarityScore[rarity] or 0
-                    upgradeable[#upgradeable + 1] = {
-                        id = brawlerId,
-                        rarity = rarity,
-                        level = level,
-                        score = rarityScore * 1000 + level,
-                    }
-                end
-            end
-        end
-    end
-    table.sort(upgradeable, function(a, b) return a.score > b.score end)
-    local result = {}
-    for i = 1, math.min(#upgradeable, maxCount or 5) do
-        result[#result + 1] = upgradeable[i]
-    end
-    return result
-end
-
-local function SmartUpgradeBrawlers(maxPerTick)
-    if not UpgradeBrawler then return false end
-    local _, inventory = GetBattleSlots()
-    if typeof(inventory) ~= "table" then return false end
-    local upgradeable = GetUpgradeableBrawlers(inventory, maxPerTick or 3)
-    local didUpgrade = false
-    for _, entry in ipairs(upgradeable) do
-        local ok = SafeFire(UpgradeBrawler, entry.id)
-        if not ok then
-            ok = SafeInvoke(UpgradeBrawler, entry.id)
-        end
-        if ok then
-            didUpgrade = true
-            InvalidateInventorySnapshot()
-            task.wait(0.2)
-        end
-    end
-    return didUpgrade
-end
-
--- ============================================================
 --  UPGRADES TAB
 -- ============================================================
 UpgradeTab:CreateSection("Auto Upgrade All")
@@ -1494,48 +1343,6 @@ UpgradeTab:CreateToggle({
     end,
 })
 
-UpgradeTab:CreateSection("Auto Upgrade Brawlers")
-
-UpgradeTab:CreateLabel("Upgrades best unlocked brawlers (by rarity+level) up to Lv.11")
-
-local UpgradeBrawlerDelay = 2
-UpgradeTab:CreateInput({
-    Name                = "Brawler Upgrade Delay (seconds)",
-    PlaceholderText     = "Default: 2",
-    RemoveTextAfterFocusLost = false,
-    Callback            = function(v)
-        UpgradeBrawlerDelay = math.max(tonumber(v) or 2, 0.5)
-    end,
-})
-
-local AutoUpgradeBrawlers = false
-UpgradeTab:CreateToggle({
-    Name         = "Auto Upgrade Best Brawlers",
-    CurrentValue = false,
-    Flag         = "AutoUpgradeBrawlers",
-    Callback     = function(v)
-        AutoUpgradeBrawlers = v
-        if AutoUpgradeBrawlers then
-            StartManagedLoop("AutoUpgradeBrawlers", function() return AutoUpgradeBrawlers end, function()
-                SmartUpgradeBrawlers(3)
-                return UpgradeBrawlerDelay
-            end, 2)
-        end
-    end,
-})
-
-UpgradeTab:CreateButton({
-    Name     = "Upgrade Best Brawlers Now",
-    Callback = function()
-        local did = SmartUpgradeBrawlers(5)
-        Rayfield:Notify({
-            Title   = "Brawler Upgrade",
-            Content = did and "Upgraded brawlers!" or "No upgrades available (check coins/PP or remote).",
-            Duration = 3,
-        })
-    end,
-})
-
 -- ============================================================
 --  BATTLE TAB
 -- ============================================================
@@ -1636,95 +1443,16 @@ BattleTab:CreateSection("Auto Open Boxes")
 -- When AutoBattle is ON this is already handled automatically inside the battle loop.
 -- Enable this toggle to auto-open boxes even when AutoBattle is OFF.
 
--- Try to open any pending deferred battle rewards (Starr Drops, Chaos Drops)
--- The server gives a token string in the inventory snapshot under pendingDeferredBattleRewards
-local function OpenPendingDeferredRewards()
-    if not OpenDeferredBattleReward then return false end
-    local inv
-    local ok, snapshot = SafeInvoke(GetInventorySnapshot)
-    if ok and typeof(snapshot) == "table" then
-        inv = snapshot
-        InventorySnapshotCache = snapshot
-        InventorySnapshotCacheTime = os.clock()
-    end
-    if typeof(inv) ~= "table" then return false end
-    -- Check common field names the server may use for pending deferred rewards
-    local pending = inv.pendingDeferredBattleRewards
-        or inv.deferredBattleRewards
-        or inv.pendingStarrDrops
-        or inv.starrDropTokens
-    if typeof(pending) == "table" then
-        local opened = false
-        for _, token in ipairs(pending) do
-            if typeof(token) == "string" and token ~= "" then
-                SafeInvoke(OpenDeferredBattleReward, token)
-                opened = true
-                task.wait(0.3)
-            elseif typeof(token) == "table" then
-                local t = token.token or token.id or token.rewardId
-                if typeof(t) == "string" and t ~= "" then
-                    SafeInvoke(OpenDeferredBattleReward, t)
-                    opened = true
-                    task.wait(0.3)
-                end
-            end
-        end
-        if opened then
-            InvalidateInventorySnapshot()
-            return true
-        end
-    end
-    -- Also try known StarrDrop/ChaosDrop box IDs from inventory counts
-    if typeof(inv.boxes) == "table" or typeof(inv.boxCounts) == "table" then
-        local boxes = inv.boxes or inv.boxCounts
-        local specialIds = {}
-        if BattleConfig and BattleConfig.StarrDropBoxId then specialIds[BattleConfig.StarrDropBoxId] = true end
-        if BattleConfig and BattleConfig.ChaosDropBoxId then specialIds[BattleConfig.ChaosDropBoxId] = true end
-        for boxId, count in pairs(boxes) do
-            if specialIds[boxId] and (tonumber(count) or 0) > 0 and OpenBox then
-                for _ = 1, math.min(tonumber(count) or 1, 10) do
-                    SafeInvoke(OpenBox, boxId)
-                    task.wait(0.2)
-                end
-                InvalidateInventorySnapshot()
-            end
-        end
-    end
-    return false
-end
-
 local function OpenAllPendingBoxes()
-    -- 1. Collect from battle result
     local stateOk, state = SafeInvoke(GetBattleState)
     if stateOk and typeof(state) == "table" and typeof(state.completedResult) == "table" then
         SetBattleResult(state.completedResult)
         SetBattleStatus("Opening boxes from battle result")
         SafeInvoke(AcknowledgeBattleResult, { deferBoxRewards = false })
         InvalidateInventorySnapshot()
-        task.wait(0.3)
+        return true
     end
-    -- 2. Open deferred star/chaos drops
-    OpenPendingDeferredRewards()
-    -- 3. Open any held boxes from inventory via OpenBox remote
-    if OpenBox then
-        local inv
-        local ok, snapshot = SafeInvoke(GetInventorySnapshot)
-        if ok and typeof(snapshot) == "table" then
-            inv = snapshot
-        end
-        local boxCounts = (typeof(inv) == "table" and (inv.boxes or inv.boxCounts)) or {}
-        for _, boxId in ipairs(KnownBoxIds) do
-            local count = tonumber(boxCounts[boxId]) or 0
-            if count > 0 then
-                for _ = 1, math.min(count, 20) do
-                    SafeInvoke(OpenBox, boxId)
-                    task.wait(0.15)
-                end
-                InvalidateInventorySnapshot()
-            end
-        end
-    end
-    return true
+    return false
 end
 
 local AutoOpenBoxes = false
@@ -1738,7 +1466,7 @@ BattleTab:CreateInput({
     end,
 })
 BattleTab:CreateToggle({
-    Name         = "Auto Open Boxes + Star Drops",
+    Name         = "Auto Open Boxes",
     CurrentValue = false,
     Flag         = "AutoOpenBoxes",
     Callback     = function(v)
@@ -2139,8 +1867,20 @@ local function MacroClaimRewards()
 end
 
 local function MacroOpenBoxes()
-    -- Reuse the full OpenAllPendingBoxes logic
-    OpenAllPendingBoxes()
+    -- Open all pending battle boxes
+    local stateOk, state = SafeInvoke(GetBattleState)
+    if stateOk and typeof(state) == "table" and typeof(state.completedResult) == "table" then
+        SafeInvoke(AcknowledgeBattleResult, { deferBoxRewards = false })
+        InvalidateInventorySnapshot()
+    end
+    -- Also try dedicated OpenBox remote for each known box type
+    if OpenBox then
+        for _, boxId in ipairs(KnownBoxIds or {}) do
+            SafeInvoke(OpenBox, boxId)
+            task.wait(0.1)
+        end
+        InvalidateInventorySnapshot()
+    end
 end
 
 MacroTab:CreateInput({
