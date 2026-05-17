@@ -14,7 +14,7 @@ local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser       = game:GetService("VirtualUser")
 local player            = Players.LocalPlayer
-local HUB_VERSION       = "2026-05-17-auto-battle-equips-best"
+local HUB_VERSION       = "2026-05-17-brawler-cost-filter-debug"
 
 -- Remotes
 local Remotes              = ReplicatedStorage:WaitForChild("Remotes", 9e9)
@@ -87,7 +87,7 @@ local Window = Rayfield:CreateWindow({
     LoadingTitle    = "Brawl RNG",
     LoadingSubtitle = "Loading...",
     ConfigurationSaving = {
-        Enabled    = false,
+        Enabled    = true,
         FolderName = "BrawlRNGHub",
         FileName   = "BrawlRNGHubConfig",
     },
@@ -157,6 +157,14 @@ end
 
 HubDebug("Version", HUB_VERSION)
 
+local function HasConfigFileAccess()
+    return type(readfile) == "function"
+        and type(writefile) == "function"
+        and type(isfile) == "function"
+        and type(isfolder) == "function"
+        and type(makefolder) == "function"
+end
+
 local function SafeNotify(data)
     if Rayfield and type(Rayfield.Notify) == "function" then
         local ok, err = pcall(function()
@@ -166,6 +174,10 @@ local function SafeNotify(data)
             HubWarn("Notify", err)
         end
     end
+end
+
+if not HasConfigFileAccess() then
+    HubWarn("ConfigSaving", "Executor file APIs missing; settings may not save after rejoin")
 end
 
 local function GetDropdownChoice(value, fallback)
@@ -399,6 +411,11 @@ end
 local function GetBrawlerRarityKey(brawlerId)
     local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
     return brawler and brawler.rarity or nil
+end
+
+local function GetBrawlerDisplayName(brawlerId)
+    local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
+    return brawler and brawler.name or tostring(brawlerId)
 end
 
 local function GetBrawlerRarityScore(brawlerId)
@@ -1246,6 +1263,50 @@ local function GetBrawlerUpgradeCost(brawlerId, state)
     return nil
 end
 
+local function GetBrawlerUpgradeDebugText(brawlerId, state)
+    local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
+    local level = math.max(1, math.floor(tonumber(state and state.level) or 1))
+    local rarity = brawler and brawler.rarity or "?"
+    local costs = GetBrawlerUpgradeCost(brawlerId, state)
+    local coins = GetCoins()
+    local powerPoints = GetPowerPoints()
+    local classKey = GetBrawlerClassKey(brawlerId) or "-"
+    local selectedText = IsBrawlerInBattleSlots(brawlerId, ({ GetBattleSlots() })[2]) and "yes" or "no"
+    local roleText = IsBrawlerRecommendedForCurrentMap(brawlerId) and "yes" or "no"
+
+    if costs then
+        return string.format(
+            "%s (%s) id=%s rarity=%s class=%s level=%d cost=%d coins/%d pp balance=%d coins/%d pp selected=%s roleMatch=%s",
+            GetBrawlerDisplayName(brawlerId),
+            tostring(brawlerId),
+            tostring(brawlerId),
+            tostring(rarity),
+            tostring(classKey),
+            level,
+            costs.coins,
+            costs.powerPoints,
+            coins,
+            powerPoints,
+            selectedText,
+            roleText
+        )
+    end
+
+    return string.format(
+        "%s (%s) id=%s rarity=%s class=%s level=%d cost=max/unknown balance=%d coins/%d pp selected=%s roleMatch=%s",
+        GetBrawlerDisplayName(brawlerId),
+        tostring(brawlerId),
+        tostring(brawlerId),
+        tostring(rarity),
+        tostring(classKey),
+        level,
+        coins,
+        powerPoints,
+        selectedText,
+        roleText
+    )
+end
+
 local function CanUpgradeBrawler(brawlerId, state, targetLevel)
     if not PurchaseBrawlerUpgrade or typeof(state) ~= "table" or state.unlocked ~= true then
         return false
@@ -1271,18 +1332,10 @@ local function IsBrawlerAllowedByUpgradeFilter(brawlerId, state, inventory, minR
     end
 
     local minScore = BrawlerUpgradeMinRarityScore[minRarity or "Epic"] or BrawlerUpgradeMinRarityScore.Epic
-    if minScore <= 0 or GetBrawlerRarityScore(brawlerId) >= minScore then
-        return true
-    end
-
-    if includeRoleMatches == true then
-        return IsBrawlerRecommendedForCurrentMap(brawlerId) or IsBrawlerInBattleSlots(brawlerId, inventory)
-    end
-
-    return false
+    return minScore <= 0 or GetBrawlerRarityScore(brawlerId) >= minScore
 end
 
-local function ScoreBrawlerUpgradeCandidate(brawlerId, state, mode, targetLevel)
+local function ScoreBrawlerUpgradeCandidate(brawlerId, state, mode, targetLevel, includeRoleMatches)
     local costs = GetBrawlerUpgradeCost(brawlerId, state)
 
     local level = math.max(1, math.floor(tonumber(state.level) or 1))
@@ -1297,7 +1350,7 @@ local function ScoreBrawlerUpgradeCandidate(brawlerId, state, mode, targetLevel)
         end
     end
 
-    local roleBonus = IsBrawlerRecommendedForCurrentMap(brawlerId) and 350000 or 0
+    local roleBonus = includeRoleMatches == true and IsBrawlerRecommendedForCurrentMap(brawlerId) and 350000 or 0
 
     local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
     local rarityBonus = BrawlerRarityScore[brawler and brawler.rarity or ""] or 0
@@ -1335,6 +1388,7 @@ local function ChooseBrawlerUpgradeCandidate(mode, targetLevel, minRarity, inclu
     local matchingMaxedOrTargeted = 0
     local matchingFiltered = 0
     local matchingTemporarilyBlocked = 0
+    local firstCostBlockedText = nil
     for brawlerId, state in pairs(inventory.byId) do
         if typeof(brawlerId) == "string" and typeof(state) == "table" and state.unlocked == true then
             if IsBrawlerAllowedByUpgradeFilter(brawlerId, state, inventory, minRarity, includeRoleMatches) then
@@ -1343,11 +1397,12 @@ local function ChooseBrawlerUpgradeCandidate(mode, targetLevel, minRarity, inclu
                 if (typeof(skipIds) == "table" and skipIds[brawlerId]) or temporaryBlockReason then
                     matchingTemporarilyBlocked += 1
                 elseif CanUpgradeBrawler(brawlerId, state, targetLevel) then
-                    local score = ScoreBrawlerUpgradeCandidate(brawlerId, state, mode, targetLevel)
+                    local score = ScoreBrawlerUpgradeCandidate(brawlerId, state, mode, targetLevel, includeRoleMatches)
                     if score and (not best or score > best.score) then
                         best = {
                             id = brawlerId,
                             score = score,
+                            state = state,
                         }
                     end
                 else
@@ -1357,6 +1412,9 @@ local function ChooseBrawlerUpgradeCandidate(mode, targetLevel, minRarity, inclu
                     local wantedLevel = math.clamp(math.floor(tonumber(targetLevel) or maxLevel), 1, maxLevel)
                     if costs and level < maxLevel and level < wantedLevel then
                         matchingLockedByCost += 1
+                        if not firstCostBlockedText then
+                            firstCostBlockedText = GetBrawlerUpgradeDebugText(brawlerId, state)
+                        end
                     else
                         matchingMaxedOrTargeted += 1
                     end
@@ -1366,13 +1424,13 @@ local function ChooseBrawlerUpgradeCandidate(mode, targetLevel, minRarity, inclu
     end
 
     if best then
-        return best.id, "ready"
+        return best.id, "ready", best.state
     end
     if matchingFiltered <= 0 then
         return nil, "no unlocked brawlers match the filter"
     end
     if matchingLockedByCost > 0 then
-        return nil, "not enough Coins or PowerPoints"
+        return nil, "not enough Coins or PowerPoints | firstBlocked=" .. tostring(firstCostBlockedText or "-")
     end
     if matchingTemporarilyBlocked > 0 then
         return nil, "waiting for Coins or PowerPoints"
@@ -1383,7 +1441,7 @@ local function ChooseBrawlerUpgradeCandidate(mode, targetLevel, minRarity, inclu
     return nil, "no upgrade candidate"
 end
 
-local function SmartPurchaseBrawlerUpgrade(brawlerId)
+local function SmartPurchaseBrawlerUpgrade(brawlerId, state)
     if typeof(brawlerId) ~= "string" or brawlerId == "" then
         return false, "missing brawler id"
     end
@@ -1395,12 +1453,14 @@ local function SmartPurchaseBrawlerUpgrade(brawlerId)
     local ok, result = SafeInvoke(PurchaseBrawlerUpgrade, brawlerId)
     if not ok then
         InvalidateInventorySnapshot()
+        HubDebug("BrawlerUpgradeResult", "Remote failed for " .. GetBrawlerUpgradeDebugText(brawlerId, state) .. " | result=" .. tostring(result or "remote call failed"))
         return false, result or "remote call failed"
     end
 
     if typeof(result) == "table" and result.ok == false then
         InvalidateInventorySnapshot()
         SetBrawlerUpgradeTemporaryBlock(brawlerId, result.message or result.code or "server rejected upgrade")
+        HubDebug("BrawlerUpgradeResult", "Server rejected " .. GetBrawlerUpgradeDebugText(brawlerId, state) .. " | result=" .. tostring(result.message or result.code or "server rejected upgrade"))
         return false, result.message or result.code or "server rejected upgrade"
     end
 
@@ -1412,6 +1472,7 @@ local function SmartPurchaseBrawlerUpgrade(brawlerId)
         InvalidateInventorySnapshot()
     end
 
+    HubDebug("BrawlerUpgradeResult", "Bought " .. GetBrawlerUpgradeDebugText(brawlerId, state))
     return true, result
 end
 
@@ -2023,11 +2084,6 @@ local function SetBrawlerUpgradeStatus(text)
     SetRayfieldLabel(BrawlerUpgradeStatusLabel, "Brawler Upgrades: " .. tostring(text or "-"))
 end
 
-local function GetBrawlerDisplayName(brawlerId)
-    local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
-    return brawler and brawler.name or tostring(brawlerId)
-end
-
 local function RunBrawlerUpgradeBatch()
     local upgraded = 0
     local lastName = nil
@@ -2038,7 +2094,7 @@ local function RunBrawlerUpgradeBatch()
 
     while upgraded < BrawlerUpgradeBatchSize and attempts < maxAttempts do
         attempts += 1
-        local brawlerId, reason = ChooseBrawlerUpgradeCandidate(
+        local brawlerId, reason, candidateState = ChooseBrawlerUpgradeCandidate(
             BrawlerUpgradeMode,
             BrawlerUpgradeTargetLevel,
             BrawlerUpgradeMinRarity,
@@ -2050,7 +2106,16 @@ local function RunBrawlerUpgradeBatch()
             break
         end
 
-        local ok, result = SmartPurchaseBrawlerUpgrade(brawlerId)
+        HubDebug(
+            "BrawlerUpgradeAttempt",
+            "Trying " .. GetBrawlerUpgradeDebugText(brawlerId, candidateState)
+                .. " | mode=" .. tostring(BrawlerUpgradeMode)
+                .. " minRarity=" .. tostring(BrawlerUpgradeMinRarity)
+                .. " includeRoles=" .. tostring(BrawlerUpgradeIncludeRoles)
+                .. " targetLevel=" .. tostring(BrawlerUpgradeTargetLevel)
+        )
+
+        local ok, result = SmartPurchaseBrawlerUpgrade(brawlerId, candidateState)
         if not ok then
             lastReason = tostring(result or "upgrade failed")
             HubDebug("BrawlerUpgrade", "Failed " .. tostring(brawlerId) .. ": " .. lastReason)
@@ -2138,9 +2203,13 @@ local function DebugBrawlerUpgradeState()
     )
     local candidateText = candidateId and GetBrawlerDisplayName(candidateId) or tostring(reason or "-")
     local summary = string.format(
-        "remote=%s | module=%s | coins=%d | pp=%d | unlocked=%d | matched=%d | affordable=%d | costUnknown=%d | costBlocked=%d | skipped=%d | max/target=%d | candidate=%s",
+        "remote=%s | module=%s | mode=%s | min=%s | roles=%s | target=%d | coins=%d | pp=%d | unlocked=%d | matched=%d | affordable=%d | costUnknown=%d | costBlocked=%d | skipped=%d | max/target=%d | candidate=%s",
         remoteText,
         moduleText,
+        tostring(BrawlerUpgradeMode),
+        tostring(BrawlerUpgradeMinRarity),
+        tostring(BrawlerUpgradeIncludeRoles),
+        tonumber(BrawlerUpgradeTargetLevel) or 11,
         coins,
         powerPoints,
         unlocked,
