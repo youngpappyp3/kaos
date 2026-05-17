@@ -14,7 +14,7 @@ local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser       = game:GetService("VirtualUser")
 local player            = Players.LocalPlayer
-local HUB_VERSION       = "2026-05-17-simple-game-brawler-upgrade"
+local HUB_VERSION       = "2026-05-17-server-check-brawler-upgrade"
 
 -- Remotes
 local Remotes              = ReplicatedStorage:WaitForChild("Remotes", 9e9)
@@ -1342,7 +1342,7 @@ local function CanUpgradeBrawler(brawlerId, state, targetLevel)
 
     local costs = GetBrawlerUpgradeCost(brawlerId, state)
     if not costs then
-        return false
+        return true
     end
     return GetCoins() >= costs.coins and GetPowerPoints() >= costs.powerPoints
 end
@@ -1400,7 +1400,16 @@ local function ChooseBrawlerUpgradeCandidate(targetLevel, skipIds)
                 local level = math.max(1, math.floor(tonumber(state.level) or 1))
                 local maxLevel = tonumber(BrawlerProgressionConfig and BrawlerProgressionConfig.MaxLevel) or 11
                 local wantedLevel = math.clamp(math.floor(tonumber(targetLevel) or maxLevel), 1, maxLevel)
-                if costs and level < maxLevel and level < wantedLevel then
+                if not costs and level < maxLevel and level < wantedLevel then
+                    local score = ScoreBrawlerUpgradeCandidate(brawlerId, state, targetLevel)
+                    if score and (not best or score > best.score) then
+                        best = {
+                            id = brawlerId,
+                            score = score,
+                            state = state,
+                        }
+                    end
+                elseif costs and level < maxLevel and level < wantedLevel then
                     blockedByCost += 1
                     if not firstCostBlockedText then
                         firstCostBlockedText = GetBrawlerUpgradeDebugText(brawlerId, state)
