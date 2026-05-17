@@ -16,6 +16,7 @@ local player            = Players.LocalPlayer
 local Remotes              = ReplicatedStorage:WaitForChild("Remotes", 9e9)
 local ClickerTap           = Remotes:WaitForChild("ClickerTap",              9e9)
 local SetAutoClickerEnabled= Remotes:WaitForChild("SetAutoClickerEnabled",   9e9)
+local GetUpgradeState      = Remotes:WaitForChild("GetUpgradeState",         9e9)
 local PurchaseUpgrade      = Remotes:WaitForChild("PurchaseUpgrade",         9e9)
 local PurchaseRebirth      = Remotes:WaitForChild("PurchaseRebirth",         9e9)
 local RollDice             = Remotes:WaitForChild("RollDice",                9e9)
@@ -30,6 +31,30 @@ local ClaimTrophyRoadRankUpReward = Remotes:WaitForChild("ClaimTrophyRoadRankUpR
 local GetInventorySnapshot = Remotes:WaitForChild("GetInventorySnapshot",    9e9)
 local SetPlayerSettings    = Remotes:WaitForChild("SetPlayerSettings",       9e9)
 local RedeemClickerBonus   = Remotes:WaitForChild("RedeemClickerBonus",      9e9)
+
+local function SafeRequireModule(...)
+    local node = ReplicatedStorage
+    for _, name in ipairs({ ... }) do
+        node = node and node:FindFirstChild(name)
+        if not node then
+            return nil
+        end
+    end
+
+    if not node:IsA("ModuleScript") then
+        return nil
+    end
+
+    local ok, result = pcall(require, node)
+    if ok then
+        return result
+    end
+    return nil
+end
+
+local BattleConfig = SafeRequireModule("UI", "Modules", "BattleConfig")
+local UpgradesConfig = SafeRequireModule("UI", "Modules", "UpgradesConfig")
+local AchievementConfig = SafeRequireModule("UI", "Modules", "AchievementConfig")
 
 -- Rayfield
 local RayfieldSource = game:HttpGet("https://sirius.menu/rayfield")
@@ -63,6 +88,7 @@ local MiscTab     = Window:CreateTab("Misc",      4483362458)
 
 -- Managed loop helper
 local ActiveLoops = {}
+local UpgradeList
 
 local function StartManagedLoop(name, isRunning, tickFn, errDelay)
     if ActiveLoops[name] then return end
@@ -82,6 +108,463 @@ local function StartManagedLoop(name, isRunning, tickFn, errDelay)
     end)
 end
 
+local function SafeInvoke(remote, ...)
+    if not remote then
+        return false, nil
+    end
+
+    if remote:IsA("RemoteFunction") then
+        return pcall(function(...)
+            return remote:InvokeServer(...)
+        end, ...)
+    end
+
+    if remote:IsA("RemoteEvent") then
+        return pcall(function(...)
+            remote:FireServer(...)
+            return true
+        end, ...)
+    end
+
+    return false, nil
+end
+
+local function SafeFire(remote, ...)
+    if not remote then
+        return false
+    end
+
+    if remote:IsA("RemoteEvent") then
+        local ok = pcall(function(...)
+            remote:FireServer(...)
+        end, ...)
+        return ok
+    end
+
+    if remote:IsA("RemoteFunction") then
+        local ok = pcall(function(...)
+            remote:InvokeServer(...)
+        end, ...)
+        return ok
+    end
+
+    return false
+end
+
+local BattleMapOrder = {
+    TrainingYard = 1,
+    CoinCave = 2,
+    GemTunnel = 3,
+    PowerPit = 4,
+    ScrapYard = 5,
+    TrophyTrail = 6,
+    HeistRoom = 7,
+    AmbushValley = 8,
+    BossVault = 9,
+    WildZone = 10,
+    SurvivalPit = 11,
+    StarVault = 12,
+}
+
+local function GetBattleSlots()
+    local ok, inv = SafeInvoke(GetInventorySnapshot)
+    local slots = { "shelly", false, false }
+
+    if ok and typeof(inv) == "table" and typeof(inv.selectedBattleSlots) == "table" then
+        slots = inv.selectedBattleSlots
+    end
+
+    if BattleConfig and BattleConfig.sanitizeSelectedBrawlerSlots then
+        local sanitizedOk, sanitized = pcall(function()
+            return BattleConfig.sanitizeSelectedBrawlerSlots(slots, inv)
+        end)
+        if sanitizedOk and typeof(sanitized) == "table" then
+            return sanitized, inv
+        end
+    end
+
+    return slots, inv
+end
+
+local function ExtractMapIdsFromOffer(result)
+    if typeof(result) ~= "table" then
+        return {}
+    end
+
+    local battleState = typeof(result.battleState) == "table" and result.battleState or result
+    local offer = typeof(battleState.pendingMapOffer) == "table" and battleState.pendingMapOffer or result.pendingMapOffer
+
+    if typeof(offer) == "table" and typeof(offer.mapIds) == "table" then
+        return offer.mapIds
+    end
+
+    if typeof(result.mapIds) == "table" then
+        return result.mapIds
+    end
+
+    if typeof(result.maps) == "table" then
+        local ids = {}
+        for _, map in ipairs(result.maps) do
+            if typeof(map) == "string" then
+                ids[#ids + 1] = map
+            elseif typeof(map) == "table" and typeof(map.id or map.mapId) == "string" then
+                ids[#ids + 1] = map.id or map.mapId
+            end
+        end
+        return ids
+    end
+
+    return {}
+end
+
+local function GetMapConfig(mapId)
+    if BattleConfig and BattleConfig.getMap then
+        local ok, map = pcall(function()
+            return BattleConfig.getMap(mapId)
+        end)
+        if ok and typeof(map) == "table" then
+            return map
+        end
+    end
+
+    if BattleConfig and typeof(BattleConfig.Maps) == "table" and typeof(BattleConfig.Maps[mapId]) == "table" then
+        return BattleConfig.Maps[mapId]
+    end
+
+    return {
+        id = mapId,
+        order = BattleMapOrder[mapId] or 0,
+        trophyReward = BattleMapOrder[mapId] or 0,
+        baseWinChance = 0,
+    }
+end
+
+local function GetMapPreview(mapId, slots, inventory)
+    if BattleConfig and BattleConfig.calculatePreview then
+        local ok, preview = pcall(function()
+            return BattleConfig.calculatePreview(mapId, slots, inventory)
+        end)
+        if ok and typeof(preview) == "table" then
+            return preview
+        end
+    end
+    return nil
+end
+
+local function IsBetterBattleMap(candidate, current, mode)
+    if not current then
+        return true
+    end
+
+    if mode == "Best Reward" then
+        if candidate.trophyReward == current.trophyReward then
+            if candidate.winChance == current.winChance then
+                return candidate.order > current.order
+            end
+            return candidate.winChance > current.winChance
+        end
+        return candidate.trophyReward > current.trophyReward
+    end
+
+    if candidate.winChance == current.winChance then
+        if candidate.trophyReward == current.trophyReward then
+            return candidate.order > current.order
+        end
+        return candidate.trophyReward > current.trophyReward
+    end
+    return candidate.winChance > current.winChance
+end
+
+local function ChooseBattleMap(mapIds, slots, inventory, mode, fallbackMap)
+    if mode == "Manual Dropdown" then
+        return fallbackMap
+    end
+
+    local best = nil
+    for _, mapId in ipairs(mapIds or {}) do
+        if typeof(mapId) == "string" then
+            local map = GetMapConfig(mapId)
+            local preview = GetMapPreview(mapId, slots, inventory)
+            local candidate = {
+                mapId = mapId,
+                order = tonumber(map and map.order) or BattleMapOrder[mapId] or 0,
+                trophyReward = tonumber(preview and preview.trophyReward) or tonumber(map and map.trophyReward) or 0,
+                winChance = tonumber(preview and preview.winChance) or tonumber(map and map.baseWinChance) or 0,
+            }
+
+            if IsBetterBattleMap(candidate, best, mode) then
+                best = candidate
+            end
+        end
+    end
+
+    return (best and best.mapId) or fallbackMap
+end
+
+local function RequestAndStartSmartBattle(mode, fallbackMap)
+    local existingMapIds = {}
+    local stateOk, state = SafeInvoke(GetBattleState)
+    if stateOk and typeof(state) == "table" then
+        if typeof(state.completedResult) == "table" then
+            SafeInvoke(AcknowledgeBattleResult, { deferBoxRewards = true })
+            return true, 1
+        end
+
+        if typeof(state.activeBattle) == "table" then
+            return true, 3
+        end
+
+        existingMapIds = ExtractMapIdsFromOffer(state)
+    end
+
+    local slots, inventory = GetBattleSlots()
+    local mapsOk, mapsResult = SafeInvoke(RequestBattleMaps)
+    if not mapsOk or typeof(mapsResult) ~= "table" then
+        return false, nil
+    end
+
+    local mapIds = ExtractMapIdsFromOffer(mapsResult)
+    if #mapIds <= 0 then
+        mapIds = existingMapIds
+    end
+
+    if mode ~= "Manual Dropdown" and #mapIds <= 0 then
+        return false, nil
+    end
+
+    local chosenMap = ChooseBattleMap(mapIds, slots, inventory, mode, fallbackMap)
+    if typeof(chosenMap) ~= "string" then
+        return false, nil
+    end
+
+    local startOk = SafeInvoke(StartBattle, chosenMap, slots)
+    return startOk, chosenMap
+end
+
+local function GetPlayerNumberValue(name)
+    local value = player:FindFirstChild(name)
+    if value and (value:IsA("NumberValue") or value:IsA("IntValue")) then
+        return tonumber(value.Value) or 0
+    end
+    return 0
+end
+
+local function GetCoins()
+    return GetPlayerNumberValue("Coins")
+end
+
+local function GetRebirthCount()
+    return GetPlayerNumberValue("Rebirth")
+end
+
+local function GetUpgradeSnapshot()
+    local ok, state = SafeInvoke(GetUpgradeState)
+    if ok and typeof(state) == "table" then
+        if UpgradesConfig and UpgradesConfig.buildSnapshot then
+            local buildOk, snapshot = pcall(function()
+                return UpgradesConfig.buildSnapshot(state.levels, state.groupUnlocked, {
+                    Rebirth = state.rebirthCount or GetRebirthCount(),
+                }, state.generator)
+            end)
+            if buildOk and typeof(snapshot) == "table" then
+                return snapshot
+            end
+        end
+        return state
+    end
+
+    if UpgradesConfig and UpgradesConfig.buildSnapshot then
+        local fallbackOk, snapshot = pcall(function()
+            return UpgradesConfig.buildSnapshot(nil, false, {
+                Rebirth = GetRebirthCount(),
+            })
+        end)
+        if fallbackOk and typeof(snapshot) == "table" then
+            return snapshot
+        end
+    end
+
+    return {
+        levels = {
+            ClickPower = 0,
+            CoinGenerator = 0,
+            AutoClicker = 1,
+        },
+        rebirthCount = GetRebirthCount(),
+    }
+end
+
+local function GetUpgradeLevel(snapshot, upgradeId)
+    if typeof(snapshot) == "table" and typeof(snapshot.levels) == "table" then
+        return tonumber(snapshot.levels[upgradeId]) or 0
+    end
+    return 0
+end
+
+local function CanAffordUpgrade(upgradeId, buyMode, snapshot)
+    if not UpgradesConfig then
+        return true
+    end
+
+    snapshot = snapshot or GetUpgradeSnapshot()
+    local rebirthCount = tonumber(snapshot.rebirthCount) or GetRebirthCount()
+    local level = GetUpgradeLevel(snapshot, upgradeId)
+    local coins = GetCoins()
+
+    if UpgradesConfig.getMaxLevel and level >= UpgradesConfig.getMaxLevel(upgradeId, rebirthCount) then
+        return false
+    end
+
+    if buyMode == "max" and UpgradesConfig.getAffordableCount then
+        local ok, count = pcall(function()
+            return UpgradesConfig.getAffordableCount(upgradeId, level, coins, rebirthCount)
+        end)
+        count = tonumber(count) or 0
+        return ok and count > 0
+    end
+
+    if UpgradesConfig.getPriceForLevel then
+        local ok, price = pcall(function()
+            return UpgradesConfig.getPriceForLevel(upgradeId, level, rebirthCount)
+        end)
+        price = tonumber(price)
+        return ok and price ~= nil and coins >= price
+    end
+
+    return true
+end
+
+local function SmartPurchaseUpgrade(upgradeId, buyMode, snapshot)
+    if CanAffordUpgrade(upgradeId, buyMode, snapshot) then
+        return SafeInvoke(PurchaseUpgrade, upgradeId, buyMode)
+    end
+    return false, nil
+end
+
+local function GetUpgradeCandidate(upgradeId, snapshot)
+    if not UpgradesConfig or not UpgradesConfig.getPriceForLevel then
+        return nil
+    end
+
+    local rebirthCount = tonumber(snapshot.rebirthCount) or GetRebirthCount()
+    local level = GetUpgradeLevel(snapshot, upgradeId)
+    local okPrice, price = pcall(function()
+        return UpgradesConfig.getPriceForLevel(upgradeId, level, rebirthCount)
+    end)
+    price = okPrice and tonumber(price) or nil
+    if not price or price > GetCoins() then
+        return nil
+    end
+
+    local valueGain = 1
+    if UpgradesConfig.getValueAtLevel then
+        local okCurrent, currentValue = pcall(function()
+            return UpgradesConfig.getValueAtLevel(upgradeId, level)
+        end)
+        local okNext, nextValue = pcall(function()
+            return UpgradesConfig.getValueAtLevel(upgradeId, level + 1)
+        end)
+        if okCurrent and okNext then
+            valueGain = math.max(1, (tonumber(nextValue) or 0) - (tonumber(currentValue) or 0))
+        end
+    end
+
+    return {
+        id = upgradeId,
+        price = price,
+        value = valueGain / math.max(price, 1),
+    }
+end
+
+local function ChooseSmartUpgrade(mode, snapshot)
+    if mode == "Fixed Order" then
+        for _, entry in ipairs(UpgradeList) do
+            if CanAffordUpgrade(entry[1], "single", snapshot) then
+                return entry[1]
+            end
+        end
+        return nil
+    end
+
+    local best = nil
+    for _, entry in ipairs(UpgradeList) do
+        local candidate = GetUpgradeCandidate(entry[1], snapshot)
+        if candidate then
+            if not best then
+                best = candidate
+            elseif mode == "Cheapest" and candidate.price < best.price then
+                best = candidate
+            elseif mode == "Best Value" and candidate.value > best.value then
+                best = candidate
+            end
+        end
+    end
+
+    return best and best.id or nil
+end
+
+local function CanRebirth()
+    if not UpgradesConfig or not UpgradesConfig.getRebirthCost then
+        return true
+    end
+
+    local ok, cost = pcall(function()
+        return UpgradesConfig.getRebirthCost(GetRebirthCount())
+    end)
+    cost = tonumber(cost)
+    return ok and cost ~= nil and GetCoins() >= cost
+end
+
+local function SmartPurchaseRebirth()
+    if CanRebirth() then
+        return SafeInvoke(PurchaseRebirth)
+    end
+    return false, nil
+end
+
+local function NormalizeDiceKind(kind)
+    if kind == "golden" then
+        return "golden"
+    end
+    if kind == "mythical" or kind == "mythic" then
+        return "mythical"
+    end
+    return "regular"
+end
+
+local function GetDiceCount(kind)
+    kind = NormalizeDiceKind(kind)
+    if kind == "golden" then
+        return GetPlayerNumberValue("GoldenDice")
+    end
+    if kind == "mythical" then
+        return GetPlayerNumberValue("MythicalDice")
+    end
+    return GetPlayerNumberValue("Dice")
+end
+
+local function SmartRollDice(kind)
+    kind = NormalizeDiceKind(kind)
+    if GetDiceCount(kind) <= 0 then
+        return false, nil
+    end
+    return SafeInvoke(RollDice, kind)
+end
+
+local function ClaimAllKnownAchievements(delaySeconds)
+    if not AchievementConfig or typeof(AchievementConfig.Achievements) ~= "table" then
+        SafeInvoke(ClaimAchievementReward)
+        return
+    end
+
+    for _, achievement in ipairs(AchievementConfig.Achievements) do
+        if typeof(achievement) == "table" and typeof(achievement.id) == "string" then
+            SafeInvoke(ClaimAchievementReward, achievement.id)
+            task.wait(delaySeconds or 0.1)
+        end
+    end
+end
+
 -- ============================================================
 --  AUTO TAB
 -- ============================================================
@@ -96,7 +579,7 @@ AutoTab:CreateToggle({
         Clicking = v
         if Clicking then
             StartManagedLoop("AutoClick", function() return Clicking end, function()
-                ClickerTap:FireServer()
+                SafeFire(ClickerTap)
                 return 0.1
             end, 0.5)
         end
@@ -139,7 +622,7 @@ AutoTab:CreateToggle({
         AutoRebirth = v
         if AutoRebirth then
             StartManagedLoop("AutoRebirth", function() return AutoRebirth end, function()
-                PurchaseRebirth:InvokeServer()
+                SmartPurchaseRebirth()
                 return RebirthDelay
             end, 2)
         end
@@ -173,8 +656,8 @@ AutoTab:CreateToggle({
         AutoClaimAchievements = v
         if AutoClaimAchievements then
             StartManagedLoop("AutoClaimAchievements", function() return AutoClaimAchievements end, function()
-                ClaimAchievementReward:InvokeServer()
-                return 10
+                ClaimAllKnownAchievements(0.05)
+                return 30
             end, 5)
         end
     end,
@@ -201,11 +684,23 @@ AutoTab:CreateToggle({
 -- ============================================================
 UpgradeTab:CreateSection("Auto Upgrade All")
 
-local UpgradeList = {
+UpgradeList = {
     { "ClickPower",    "single" },
     { "CoinGenerator", "single" },
     { "AutoClicker",   "single" },
 }
+
+local SmartUpgradeMode = "Best Value"
+UpgradeTab:CreateDropdown({
+    Name    = "Smart Upgrade Mode",
+    Options = { "Best Value", "Cheapest", "Fixed Order" },
+    CurrentOption = { "Best Value" },
+    MultipleOptions = false,
+    Flag    = "SmartUpgradeMode",
+    Callback = function(v)
+        SmartUpgradeMode = v[1] or v
+    end,
+})
 
 local AutoUpgradeAll = false
 UpgradeTab:CreateToggle({
@@ -216,10 +711,10 @@ UpgradeTab:CreateToggle({
         AutoUpgradeAll = v
         if AutoUpgradeAll then
             StartManagedLoop("AutoUpgradeAll", function() return AutoUpgradeAll end, function()
-                for _, entry in ipairs(UpgradeList) do
-                    if not AutoUpgradeAll then break end
-                    PurchaseUpgrade:InvokeServer(entry[1], entry[2])
-                    task.wait(0.15)
+                local snapshot = GetUpgradeSnapshot()
+                local upgradeId = ChooseSmartUpgrade(SmartUpgradeMode, snapshot)
+                if upgradeId then
+                    SmartPurchaseUpgrade(upgradeId, "single", snapshot)
                 end
                 return 0.3
             end, 1)
@@ -236,9 +731,10 @@ UpgradeTab:CreateToggle({
         AutoMaxUpgradeAll = v
         if AutoMaxUpgradeAll then
             StartManagedLoop("AutoMaxUpgradeAll", function() return AutoMaxUpgradeAll end, function()
+                local snapshot = GetUpgradeSnapshot()
                 for _, entry in ipairs(UpgradeList) do
                     if not AutoMaxUpgradeAll then break end
-                    PurchaseUpgrade:InvokeServer(entry[1], "max")
+                    SmartPurchaseUpgrade(entry[1], "max", snapshot)
                     task.wait(0.15)
                 end
                 return 0.5
@@ -258,7 +754,7 @@ UpgradeTab:CreateToggle({
         AutoClickPower = v
         if AutoClickPower then
             StartManagedLoop("AutoClickPower", function() return AutoClickPower end, function()
-                PurchaseUpgrade:InvokeServer("ClickPower", "single")
+                SmartPurchaseUpgrade("ClickPower", "single")
                 return 0.3
             end, 1)
         end
@@ -274,7 +770,7 @@ UpgradeTab:CreateToggle({
         AutoCoinGen = v
         if AutoCoinGen then
             StartManagedLoop("AutoCoinGenerator", function() return AutoCoinGen end, function()
-                PurchaseUpgrade:InvokeServer("CoinGenerator", "single")
+                SmartPurchaseUpgrade("CoinGenerator", "single")
                 return 0.3
             end, 1)
         end
@@ -290,7 +786,7 @@ UpgradeTab:CreateToggle({
         AutoAutoClicker = v
         if AutoAutoClicker then
             StartManagedLoop("AutoAutoClicker", function() return AutoAutoClicker end, function()
-                PurchaseUpgrade:InvokeServer("AutoClicker", "single")
+                SmartPurchaseUpgrade("AutoClicker", "single")
                 return 0.3
             end, 1)
         end
@@ -303,6 +799,7 @@ UpgradeTab:CreateToggle({
 BattleTab:CreateSection("Auto Battle")
 
 local BattleMapChoice = "TrainingYard"
+local BattleChoiceMode = "Best Win Chance"
 BattleTab:CreateDropdown({
     Name    = "Select Map",
     Options = {
@@ -315,6 +812,17 @@ BattleTab:CreateDropdown({
     Flag    = "BattleMapChoice",
     Callback = function(v)
         BattleMapChoice = v[1] or v
+    end,
+})
+
+BattleTab:CreateDropdown({
+    Name    = "Battle Choice Mode",
+    Options = { "Best Win Chance", "Best Reward", "Manual Dropdown" },
+    CurrentOption = { "Best Win Chance" },
+    MultipleOptions = false,
+    Flag    = "BattleChoiceMode",
+    Callback = function(v)
+        BattleChoiceMode = v[1] or v
     end,
 })
 
@@ -337,54 +845,13 @@ BattleTab:CreateToggle({
         AutoBattle = v
         if AutoBattle then
             StartManagedLoop("AutoBattle", function() return AutoBattle end, function()
-                -- 1. Check current battle state
-                local stateOk, state = pcall(function()
-                    return GetBattleState:InvokeServer()
-                end)
-
-                if stateOk and typeof(state) == "table" then
-                    -- If there's a completed result, collect it
-                    if typeof(state.completedResult) == "table" then
-                        pcall(function()
-                            AcknowledgeBattleResult:InvokeServer({ deferBoxRewards = true })
-                        end)
-                        return 1
-                    end
-
-                    -- If a battle is active, wait for it
-                    if typeof(state.activeBattle) == "table" then
-                        return 3
-                    end
-                end
-
-                -- 2. Request battle maps
-                local mapsOk, mapsResult = pcall(function()
-                    return RequestBattleMaps:InvokeServer()
-                end)
-
-                if not mapsOk or typeof(mapsResult) ~= "table" or mapsResult.ok ~= true then
+                local ok, waitOverride = RequestAndStartSmartBattle(BattleChoiceMode, BattleMapChoice)
+                if not ok then
                     return BattleDelay
                 end
-
-                -- 3. Get inventory for battle slots
-                local invOk, inv = pcall(function()
-                    return GetInventorySnapshot:InvokeServer()
-                end)
-
-                -- Build simple slot table (use first selected or default)
-                local slots = { "shelly" }
-                if invOk and typeof(inv) == "table" then
-                    if typeof(inv.selectedBattleSlots) == "table" then
-                        slots = inv.selectedBattleSlots
-                    end
+                if type(waitOverride) == "number" then
+                    return waitOverride
                 end
-
-                -- 4. Start battle on chosen map
-                task.wait(0.3)
-                pcall(function()
-                    StartBattle:InvokeServer(BattleMapChoice, slots)
-                end)
-
                 return BattleDelay
             end, 3)
         end
@@ -455,7 +922,7 @@ DiceTab:CreateToggle({
         AutoRoll = v
         if AutoRoll then
             StartManagedLoop("AutoRoll", function() return AutoRoll end, function()
-                RollDice:InvokeServer(DiceKind)
+                SmartRollDice(DiceKind)
                 return RollDelay
             end, 1)
         end
@@ -473,11 +940,17 @@ DiceTab:CreateToggle({
         AutoRollAll = v
         if AutoRollAll then
             StartManagedLoop("AutoRollAll", function() return AutoRollAll end, function()
-                RollDice:InvokeServer("regular")
-                task.wait(0.5)
-                RollDice:InvokeServer("golden")
-                task.wait(0.5)
-                RollDice:InvokeServer("mythical")
+                if GetDiceCount("regular") > 0 then
+                    SmartRollDice("regular")
+                    task.wait(0.5)
+                end
+                if GetDiceCount("golden") > 0 then
+                    SmartRollDice("golden")
+                    task.wait(0.5)
+                end
+                if GetDiceCount("mythical") > 0 then
+                    SmartRollDice("mythical")
+                end
                 return RollDelay
             end, 1)
         end
@@ -572,6 +1045,7 @@ local MacroLastRebirth   = 0
 local MacroDiceEnabled   = true
 local MacroBattleEnabled = true
 local MacroMapChoice     = "TrainingYard"
+local MacroBattleChoiceMode = "Best Win Chance"
 
 MacroTab:CreateInput({
     Name                = "Macro Rebirth Interval (s)",
@@ -607,6 +1081,15 @@ MacroTab:CreateDropdown({
     Callback = function(v) MacroMapChoice = v[1] or v end,
 })
 
+MacroTab:CreateDropdown({
+    Name    = "Macro Battle Choice Mode",
+    Options = { "Best Win Chance", "Best Reward", "Manual Dropdown" },
+    CurrentOption = { "Best Win Chance" },
+    MultipleOptions = false,
+    Flag    = "MacroBattleChoiceMode",
+    Callback = function(v) MacroBattleChoiceMode = v[1] or v end,
+})
+
 MacroTab:CreateToggle({
     Name         = "BrawlMax Macro",
     CurrentValue = false,
@@ -620,63 +1103,48 @@ MacroTab:CreateToggle({
                 local now = os.clock()
 
                 -- 1. Buy all upgrades (max)
+                local snapshot = GetUpgradeSnapshot()
                 for _, entry in ipairs(UpgradeList) do
                     if not MacroRunning then break end
-                    PurchaseUpgrade:InvokeServer(entry[1], "max")
+                    SmartPurchaseUpgrade(entry[1], "max", snapshot)
                     task.wait(0.05)
                 end
 
                 -- 2. Tap
-                ClickerTap:FireServer()
+                SafeFire(ClickerTap)
                 task.wait(0.05)
 
                 -- 3. Rebirth on timer
                 if now - MacroLastRebirth >= MacroRebirthDelay then
-                    PurchaseRebirth:InvokeServer()
+                    SmartPurchaseRebirth()
                     MacroLastRebirth = now
                     task.wait(0.3)
                 end
 
                 -- 4. Roll dice
                 if MacroDiceEnabled then
-                    pcall(function() RollDice:InvokeServer("regular") end)
-                    task.wait(0.1)
-                    pcall(function() RollDice:InvokeServer("golden") end)
-                    task.wait(0.1)
-                    pcall(function() RollDice:InvokeServer("mythical") end)
-                    task.wait(0.1)
+                    if GetDiceCount("regular") > 0 then
+                        SmartRollDice("regular")
+                        task.wait(0.1)
+                    end
+                    if GetDiceCount("golden") > 0 then
+                        SmartRollDice("golden")
+                        task.wait(0.1)
+                    end
+                    if GetDiceCount("mythical") > 0 then
+                        SmartRollDice("mythical")
+                        task.wait(0.1)
+                    end
                 end
 
                 -- 5. Battle cycle
                 if MacroBattleEnabled then
-                    local stateOk, state = pcall(function()
-                        return GetBattleState:InvokeServer()
-                    end)
-                    if stateOk and typeof(state) == "table" then
-                        if typeof(state.completedResult) == "table" then
-                            pcall(function()
-                                AcknowledgeBattleResult:InvokeServer({ deferBoxRewards = true })
-                            end)
-                        elseif not state.activeBattle then
-                            pcall(function() RequestBattleMaps:InvokeServer() end)
-                            task.wait(0.3)
-                            local invOk, inv = pcall(function()
-                                return GetInventorySnapshot:InvokeServer()
-                            end)
-                            local slots = { "shelly" }
-                            if invOk and typeof(inv) == "table" and typeof(inv.selectedBattleSlots) == "table" then
-                                slots = inv.selectedBattleSlots
-                            end
-                            pcall(function()
-                                StartBattle:InvokeServer(MacroMapChoice, slots)
-                            end)
-                        end
-                    end
+                    RequestAndStartSmartBattle(MacroBattleChoiceMode, MacroMapChoice)
                 end
 
                 -- 6. Claim rewards
                 pcall(function() ClaimDailyReward:InvokeServer() end)
-                pcall(function() ClaimAchievementReward:InvokeServer() end)
+                ClaimAllKnownAchievements(0.02)
                 pcall(function() ClaimTrophyRoadRankUpReward:InvokeServer() end)
 
                 return 0.1
@@ -775,10 +1243,7 @@ MiscTab:CreateButton({
 MiscTab:CreateButton({
     Name     = "Claim All Achievements Now",
     Callback = function()
-        for i = 1, 10 do
-            pcall(function() ClaimAchievementReward:InvokeServer() end)
-            task.wait(0.3)
-        end
+        ClaimAllKnownAchievements(0.05)
         Rayfield:Notify({ Title = "Achievements", Content = "Attempted to claim achievements", Duration = 2 })
     end,
 })
