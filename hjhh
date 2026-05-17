@@ -31,6 +31,11 @@ local ClaimTrophyRoadRankUpReward = Remotes:WaitForChild("ClaimTrophyRoadRankUpR
 local GetInventorySnapshot = Remotes:WaitForChild("GetInventorySnapshot",    9e9)
 local SetPlayerSettings    = Remotes:WaitForChild("SetPlayerSettings",       9e9)
 local RedeemClickerBonus   = Remotes:WaitForChild("RedeemClickerBonus",      9e9)
+local SetSelectedBattleSlots = Remotes:WaitForChild("SetSelectedBattleSlots", 9e9)
+local RankedMatchStart     = Remotes:FindFirstChild("RankedMatchStart") or Remotes:WaitForChild("RankedMatchStart", 5)
+local RankedRoundResolve   = Remotes:FindFirstChild("RankedRoundResolve") or Remotes:WaitForChild("RankedRoundResolve", 5)
+local RankedMatchFinish    = Remotes:FindFirstChild("RankedMatchFinish") or Remotes:WaitForChild("RankedMatchFinish", 5)
+local RankedRewardRoll     = Remotes:FindFirstChild("RankedRewardRoll") or Remotes:WaitForChild("RankedRewardRoll", 5)
 
 local function SafeRequireModule(...)
     local node = ReplicatedStorage
@@ -55,6 +60,7 @@ end
 local BattleConfig = SafeRequireModule("UI", "Modules", "BattleConfig")
 local UpgradesConfig = SafeRequireModule("UI", "Modules", "UpgradesConfig")
 local AchievementConfig = SafeRequireModule("UI", "Modules", "AchievementConfig")
+local BrawlerLibrary = SafeRequireModule("UI", "Modules", "BrawlerLibrary")
 
 -- Rayfield
 local RayfieldSource = game:HttpGet("https://sirius.menu/rayfield")
@@ -82,6 +88,7 @@ local AutoTab     = Window:CreateTab("Auto",      4483362458)
 local UpgradeTab  = Window:CreateTab("Upgrades",  4483362458)
 local BattleTab   = Window:CreateTab("Battle",    4483362458)
 local DiceTab     = Window:CreateTab("Dice",      4483362458)
+local RankedTab   = Window:CreateTab("Ranked",    4483362458)
 local CodesTab    = Window:CreateTab("Codes",     4483362458)
 local MacroTab    = Window:CreateTab("Macro",     4483362458)
 local MiscTab     = Window:CreateTab("Misc",      4483362458)
@@ -89,6 +96,18 @@ local MiscTab     = Window:CreateTab("Misc",      4483362458)
 -- Managed loop helper
 local ActiveLoops = {}
 local UpgradeList
+local BattleStatusLabel
+local BattleOfferLabel
+local BattleResultLabel
+local BattleSlotsLabel
+local RankedStatusLabel
+local RankedResultLabel
+local LastBattleResultText = "Last Result: -"
+local LastBattleOfferText = "Offer: -"
+local LastBattleStatusText = "Status: Idle"
+local LastBattleSlotsText = "Slots: -"
+local LastRankedStatusText = "Status: Idle"
+local LastRankedResultText = "Last Result: -"
 
 local function StartManagedLoop(name, isRunning, tickFn, errDelay)
     if ActiveLoops[name] then return end
@@ -106,6 +125,83 @@ local function StartManagedLoop(name, isRunning, tickFn, errDelay)
         end
         ActiveLoops[name] = nil
     end)
+end
+
+local function SetRayfieldLabel(label, text)
+    if label and label.Set then
+        pcall(function()
+            label:Set(text)
+        end)
+    elseif label and label.Update then
+        pcall(function()
+            label:Update(text)
+        end)
+    end
+end
+
+local function UpdateBattleLabels()
+    SetRayfieldLabel(BattleStatusLabel, LastBattleStatusText)
+    SetRayfieldLabel(BattleOfferLabel, LastBattleOfferText)
+    SetRayfieldLabel(BattleResultLabel, LastBattleResultText)
+    SetRayfieldLabel(BattleSlotsLabel, LastBattleSlotsText)
+end
+
+local function SetBattleStatus(text)
+    LastBattleStatusText = "Status: " .. tostring(text or "-")
+    UpdateBattleLabels()
+end
+
+local function SetBattleOffer(mapIds, chosenMap)
+    local offerText = "-"
+    if typeof(mapIds) == "table" and #mapIds > 0 then
+        offerText = table.concat(mapIds, ", ")
+    end
+
+    if chosenMap then
+        LastBattleOfferText = "Offer: " .. offerText .. " | Chosen: " .. tostring(chosenMap)
+    else
+        LastBattleOfferText = "Offer: " .. offerText
+    end
+    UpdateBattleLabels()
+end
+
+local function SetBattleSlots(slots)
+    local names = {}
+    if typeof(slots) == "table" then
+        for _, slot in ipairs(slots) do
+            if typeof(slot) == "string" then
+                names[#names + 1] = slot
+            end
+        end
+    end
+    LastBattleSlotsText = "Slots: " .. (#names > 0 and table.concat(names, ", ") or "-")
+    UpdateBattleLabels()
+end
+
+local function SetBattleResult(result)
+    if typeof(result) == "table" then
+        local outcome = result.didWin == true and "W" or "L"
+        local mapId = tostring(result.mapId or "?")
+        local chance = tonumber(result.winChance)
+        if chance then
+            LastBattleResultText = string.format("Last Result: %s | %s | %d%%", outcome, mapId, chance)
+        else
+            LastBattleResultText = "Last Result: " .. outcome .. " | " .. mapId
+        end
+    else
+        LastBattleResultText = "Last Result: -"
+    end
+    UpdateBattleLabels()
+end
+
+local function SetRankedStatus(text)
+    LastRankedStatusText = "Status: " .. tostring(text or "-")
+    SetRayfieldLabel(RankedStatusLabel, LastRankedStatusText)
+end
+
+local function SetRankedResult(text)
+    LastRankedResultText = "Last Result: " .. tostring(text or "-")
+    SetRayfieldLabel(RankedResultLabel, LastRankedResultText)
 end
 
 local function SafeInvoke(remote, ...)
@@ -166,6 +262,8 @@ local BattleMapOrder = {
     StarVault = 12,
 }
 
+local GetMapPreview
+
 local function GetBattleSlots()
     local ok, inv = SafeInvoke(GetInventorySnapshot)
     local slots = { "shelly", false, false }
@@ -184,6 +282,103 @@ local function GetBattleSlots()
     end
 
     return slots, inv
+end
+
+local function GetBrawlerBaseScore(brawlerId, state)
+    local level = tonumber(state and state.level) or 1
+    local trophies = tonumber(state and state.trophies) or 0
+    local brawler = BrawlerLibrary and BrawlerLibrary.ById and BrawlerLibrary.ById[brawlerId] or nil
+    local rarityScore = 0
+
+    if brawler and brawler.rarity then
+        local rarity = tostring(brawler.rarity)
+        local rarityOrder = {
+            StartingBrawler = 1,
+            Rare = 2,
+            SuperRare = 3,
+            Epic = 4,
+            Mythic = 5,
+            Legendary = 6,
+            UltraLegendary = 7,
+        }
+        rarityScore = rarityOrder[rarity] or 0
+    end
+
+    return level * 100000 + trophies * 10 + rarityScore
+end
+
+local function GetUnlockedBrawlerCandidates(inventory)
+    local candidates = {}
+    if typeof(inventory) ~= "table" or typeof(inventory.byId) ~= "table" then
+        return candidates
+    end
+
+    for brawlerId, state in pairs(inventory.byId) do
+        if typeof(brawlerId) == "string" and typeof(state) == "table" and state.unlocked == true then
+            candidates[#candidates + 1] = {
+                id = brawlerId,
+                score = GetBrawlerBaseScore(brawlerId, state),
+            }
+        end
+    end
+
+    table.sort(candidates, function(a, b)
+        return a.score > b.score
+    end)
+
+    local trimmed = {}
+    for i = 1, math.min(#candidates, 10) do
+        trimmed[#trimmed + 1] = candidates[i]
+    end
+    return trimmed
+end
+
+local function ScoreBattleSlots(mapId, slots, inventory)
+    local preview = GetMapPreview(mapId, slots, inventory)
+    if preview then
+        return (tonumber(preview.winChance) or 0) * 100000 + (tonumber(preview.trophyReward) or 0), preview
+    end
+
+    local score = 0
+    for _, slot in ipairs(slots) do
+        if typeof(slot) == "string" and inventory and inventory.byId then
+            score += GetBrawlerBaseScore(slot, inventory.byId[slot] or {})
+        end
+    end
+    return score, nil
+end
+
+local function ChooseBestBattleSlotsForMap(mapId, inventory)
+    local candidates = GetUnlockedBrawlerCandidates(inventory)
+    if #candidates <= 0 then
+        return { "shelly", false, false }, nil
+    end
+
+    local bestSlots = nil
+    local bestScore = nil
+    local bestPreview = nil
+
+    local function consider(slots)
+        local padded = { slots[1] or false, slots[2] or false, slots[3] or false }
+        local score, preview = ScoreBattleSlots(mapId, padded, inventory)
+        if not bestScore or score > bestScore then
+            bestScore = score
+            bestSlots = padded
+            bestPreview = preview
+        end
+    end
+
+    for i = 1, #candidates do
+        consider({ candidates[i].id })
+        for j = i + 1, #candidates do
+            consider({ candidates[i].id, candidates[j].id })
+            for k = j + 1, #candidates do
+                consider({ candidates[i].id, candidates[j].id, candidates[k].id })
+            end
+        end
+    end
+
+    return bestSlots or { candidates[1].id, false, false }, bestPreview
 end
 
 local function ExtractMapIdsFromOffer(result)
@@ -239,7 +434,7 @@ local function GetMapConfig(mapId)
     }
 end
 
-local function GetMapPreview(mapId, slots, inventory)
+function GetMapPreview(mapId, slots, inventory)
     if BattleConfig and BattleConfig.calculatePreview then
         local ok, preview = pcall(function()
             return BattleConfig.calculatePreview(mapId, slots, inventory)
@@ -301,16 +496,25 @@ local function ChooseBattleMap(mapIds, slots, inventory, mode, fallbackMap)
     return (best and best.mapId) or fallbackMap
 end
 
-local function RequestAndStartSmartBattle(mode, fallbackMap)
+local function RequestAndStartSmartBattle(mode, fallbackMap, autoEquipBest)
     local existingMapIds = {}
     local stateOk, state = SafeInvoke(GetBattleState)
     if stateOk and typeof(state) == "table" then
         if typeof(state.completedResult) == "table" then
+            SetBattleResult(state.completedResult)
+            SetBattleStatus("Completed - collecting")
             SafeInvoke(AcknowledgeBattleResult, { deferBoxRewards = true })
             return true, 1
         end
 
         if typeof(state.activeBattle) == "table" then
+            local mapId = tostring(state.activeBattle.mapId or "?")
+            local endTime = tonumber(state.activeBattle.endTime)
+            if endTime then
+                SetBattleStatus("Active: " .. mapId .. " | ends " .. tostring(math.max(0, math.floor(endTime - os.time()))) .. "s")
+            else
+                SetBattleStatus("Active: " .. mapId)
+            end
             return true, 3
         end
 
@@ -334,11 +538,58 @@ local function RequestAndStartSmartBattle(mode, fallbackMap)
 
     local chosenMap = ChooseBattleMap(mapIds, slots, inventory, mode, fallbackMap)
     if typeof(chosenMap) ~= "string" then
+        SetBattleStatus("No valid map")
         return false, nil
     end
 
+    if autoEquipBest then
+        local bestSlots = ChooseBestBattleSlotsForMap(chosenMap, inventory)
+        if typeof(bestSlots) == "table" then
+            slots = bestSlots
+            SafeFire(SetSelectedBattleSlots, slots)
+            task.wait(0.15)
+        end
+    end
+
+    SetBattleOffer(mapIds, chosenMap)
+    SetBattleSlots(slots)
+    SetBattleStatus("Starting: " .. chosenMap)
     local startOk = SafeInvoke(StartBattle, chosenMap, slots)
+    if startOk then
+        SetBattleStatus("Started: " .. chosenMap)
+    else
+        SetBattleStatus("Start failed: " .. chosenMap)
+    end
     return startOk, chosenMap
+end
+
+local function RefreshBattleStatus()
+    local stateOk, state = SafeInvoke(GetBattleState)
+    if not stateOk or typeof(state) ~= "table" then
+        SetBattleStatus("Refresh failed")
+        return nil
+    end
+
+    if typeof(state.completedResult) == "table" then
+        SetBattleResult(state.completedResult)
+        SetBattleStatus("Completed - ready to collect")
+        return state
+    end
+
+    if typeof(state.activeBattle) == "table" then
+        local mapId = tostring(state.activeBattle.mapId or "?")
+        local endTime = tonumber(state.activeBattle.endTime)
+        if endTime then
+            SetBattleStatus("Active: " .. mapId .. " | ends " .. tostring(math.max(0, math.floor(endTime - os.time()))) .. "s")
+        else
+            SetBattleStatus("Active: " .. mapId)
+        end
+        return state
+    end
+
+    SetBattleStatus("Idle")
+    SetBattleOffer(ExtractMapIdsFromOffer(state), nil)
+    return state
 end
 
 local function GetPlayerNumberValue(name)
@@ -563,6 +814,120 @@ local function ClaimAllKnownAchievements(delaySeconds)
             task.wait(delaySeconds or 0.1)
         end
     end
+end
+
+local function GetBestRankedBrawlerCandidates(inventory)
+    local candidates = GetUnlockedBrawlerCandidates(inventory)
+    if #candidates <= 0 then
+        return { { id = "shelly", score = 0 } }
+    end
+    return candidates
+end
+
+local function ExtractRankedRewardToken(result)
+    if typeof(result) ~= "table" then
+        return nil
+    end
+    return result.rankedRewardRollToken or result.rewardRollToken or result.rollToken
+end
+
+local function ResolveRankedRound(matchId, roundNumber, candidates)
+    local lastMessage = nil
+    for _, candidate in ipairs(candidates) do
+        local brawlerId = candidate.id
+        local roundOk, round = SafeInvoke(RankedRoundResolve, matchId, roundNumber, brawlerId)
+        local retries = 0
+        while roundOk and typeof(round) == "table" and round.ok ~= true and (round.code == "too_fast" or round.code == "rate_limited") and retries < 4 do
+            task.wait(math.clamp(tonumber(round.retryAfter) or 0.75, 0.5, 6))
+            roundOk, round = SafeInvoke(RankedRoundResolve, matchId, roundNumber, brawlerId)
+            retries += 1
+        end
+
+        if roundOk and typeof(round) == "table" and round.ok == true then
+            return true, round, brawlerId
+        end
+
+        lastMessage = typeof(round) == "table" and round.message or "round failed"
+        task.wait(0.15)
+    end
+
+    return false, lastMessage, nil
+end
+
+local function AutoPlayRankedMatch(autoRollReward)
+    if not RankedMatchStart or not RankedRoundResolve then
+        SetRankedStatus("Ranked remotes not found")
+        return false
+    end
+
+    SetRankedStatus("Starting match")
+    local startOk, match = SafeInvoke(RankedMatchStart)
+    if not startOk or typeof(match) ~= "table" or match.ok ~= true then
+        local message = typeof(match) == "table" and match.message or "start failed"
+        SetRankedStatus(message)
+        return false
+    end
+
+    local matchId = match.matchId
+    if typeof(matchId) ~= "string" or matchId == "" then
+        SetRankedStatus("No match id")
+        return false
+    end
+
+    local _, inventory = GetBattleSlots()
+    local rankedCandidates = GetBestRankedBrawlerCandidates(inventory)
+    local playerWins = 0
+    local opponentWins = 0
+    local matchResult = nil
+
+    SetRankedStatus("Match started: " .. tostring(rankedCandidates[1] and rankedCandidates[1].id or "shelly"))
+    for roundNumber = 1, 9 do
+        local roundOk, round, usedBrawlerId = ResolveRankedRound(matchId, roundNumber, rankedCandidates)
+        if not roundOk or typeof(round) ~= "table" then
+            local message = typeof(round) == "string" and round or "round failed"
+            SetRankedStatus("Round " .. tostring(roundNumber) .. ": " .. tostring(message))
+            break
+        end
+
+        playerWins = math.max(0, math.floor(tonumber(round.playerWins) or playerWins))
+        opponentWins = math.max(0, math.floor(tonumber(round.opponentWins) or opponentWins))
+        SetRankedStatus(string.format("Round %d | %d-%d | %s", roundNumber, playerWins, opponentWins, tostring(usedBrawlerId or "?")))
+
+        if round.matchFinished == true and typeof(round.matchResult) == "table" then
+            matchResult = round.matchResult
+            break
+        end
+        task.wait(0.35)
+    end
+
+    if not matchResult and RankedMatchFinish then
+        local finishOk, finishResult = SafeInvoke(RankedMatchFinish, matchId)
+        if finishOk and typeof(finishResult) == "table" and finishResult.ok == true then
+            matchResult = finishResult
+        end
+    end
+
+    if typeof(matchResult) == "table" then
+        local won = matchResult.playerWon == true
+        local trophies = tonumber(matchResult.rankedTrophies or matchResult.afterRankedTrophies)
+        SetRankedResult((won and "W" or "L") .. (trophies and (" | Trophies: " .. tostring(math.floor(trophies))) or ""))
+        SetRankedStatus("Match complete")
+
+        local token = ExtractRankedRewardToken(matchResult)
+        if autoRollReward and token and RankedRewardRoll then
+            SetRankedStatus("Rolling reward")
+            local rollOk, rollResult = SafeInvoke(RankedRewardRoll, token)
+            if rollOk and typeof(rollResult) == "table" and rollResult.ok == true then
+                SetRankedStatus("Reward rolled")
+            else
+                SetRankedStatus("Reward roll failed")
+            end
+        end
+        return true
+    end
+
+    SetRankedStatus("Match ended without result")
+    return false
 end
 
 -- ============================================================
@@ -800,8 +1165,14 @@ BattleTab:CreateSection("Auto Battle")
 
 local BattleMapChoice = "TrainingYard"
 local BattleChoiceMode = "Best Win Chance"
+local BattleAutoEquipBest = true
+BattleStatusLabel = BattleTab:CreateLabel(LastBattleStatusText)
+BattleOfferLabel = BattleTab:CreateLabel(LastBattleOfferText)
+BattleResultLabel = BattleTab:CreateLabel(LastBattleResultText)
+BattleSlotsLabel = BattleTab:CreateLabel(LastBattleSlotsText)
+
 BattleTab:CreateDropdown({
-    Name    = "Select Map",
+    Name    = "Manual/Fallback Map",
     Options = {
         "TrainingYard", "CoinCave", "GemTunnel", "PowerPit",
         "ScrapYard", "TrophyTrail", "HeistRoom", "AmbushValley",
@@ -812,6 +1183,39 @@ BattleTab:CreateDropdown({
     Flag    = "BattleMapChoice",
     Callback = function(v)
         BattleMapChoice = v[1] or v
+    end,
+})
+
+BattleTab:CreateToggle({
+    Name         = "Auto Equip Best Battle Slots",
+    CurrentValue = true,
+    Flag         = "BattleAutoEquipBest",
+    Callback     = function(v)
+        BattleAutoEquipBest = v
+    end,
+})
+
+BattleTab:CreateButton({
+    Name     = "Equip Best Battle Slots Now",
+    Callback = function()
+        local slots, inventory = GetBattleSlots()
+        local mapsOk, mapsResult = SafeInvoke(RequestBattleMaps)
+        local mapIds = mapsOk and ExtractMapIdsFromOffer(mapsResult) or {}
+        local chosenMap = ChooseBattleMap(mapIds, slots, inventory, BattleChoiceMode, BattleMapChoice)
+        local bestSlots = ChooseBestBattleSlotsForMap(chosenMap, inventory)
+        if typeof(bestSlots) == "table" then
+            SafeFire(SetSelectedBattleSlots, bestSlots)
+            SetBattleOffer(mapIds, chosenMap)
+            SetBattleSlots(bestSlots)
+            SetBattleStatus("Equipped best slots for " .. tostring(chosenMap))
+        end
+    end,
+})
+
+BattleTab:CreateButton({
+    Name     = "Refresh Battle Status",
+    Callback = function()
+        RefreshBattleStatus()
     end,
 })
 
@@ -845,7 +1249,7 @@ BattleTab:CreateToggle({
         AutoBattle = v
         if AutoBattle then
             StartManagedLoop("AutoBattle", function() return AutoBattle end, function()
-                local ok, waitOverride = RequestAndStartSmartBattle(BattleChoiceMode, BattleMapChoice)
+                local ok, waitOverride = RequestAndStartSmartBattle(BattleChoiceMode, BattleMapChoice, BattleAutoEquipBest)
                 if not ok then
                     return BattleDelay
                 end
@@ -873,6 +1277,8 @@ BattleTab:CreateToggle({
                     return GetBattleState:InvokeServer()
                 end)
                 if stateOk and typeof(state) == "table" and typeof(state.completedResult) == "table" then
+                    SetBattleResult(state.completedResult)
+                    SetBattleStatus("Completed - collecting")
                     pcall(function()
                         AcknowledgeBattleResult:InvokeServer({ deferBoxRewards = true })
                     end)
@@ -958,11 +1364,179 @@ DiceTab:CreateToggle({
 })
 
 -- ============================================================
+--  RANKED TAB
+-- ============================================================
+RankedTab:CreateSection("Auto Ranked")
+
+local AutoRanked = false
+local AutoRankedRewardRoll = true
+local RankedDelay = 8
+RankedStatusLabel = RankedTab:CreateLabel(LastRankedStatusText)
+RankedResultLabel = RankedTab:CreateLabel(LastRankedResultText)
+
+RankedTab:CreateToggle({
+    Name         = "Auto Roll Ranked Reward",
+    CurrentValue = true,
+    Flag         = "AutoRankedRewardRoll",
+    Callback     = function(v)
+        AutoRankedRewardRoll = v
+    end,
+})
+
+RankedTab:CreateInput({
+    Name                = "Ranked Loop Delay (seconds)",
+    PlaceholderText     = "Default: 8",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        local n = tonumber(v)
+        if n and n > 0 then
+            RankedDelay = n
+        end
+    end,
+})
+
+RankedTab:CreateButton({
+    Name     = "Play Ranked Match Once",
+    Callback = function()
+        task.spawn(function()
+            AutoPlayRankedMatch(AutoRankedRewardRoll)
+        end)
+    end,
+})
+
+RankedTab:CreateToggle({
+    Name         = "Auto Ranked Loop",
+    CurrentValue = false,
+    Flag         = "AutoRanked",
+    Callback     = function(v)
+        AutoRanked = v
+        if AutoRanked then
+            StartManagedLoop("AutoRanked", function() return AutoRanked end, function()
+                AutoPlayRankedMatch(AutoRankedRewardRoll)
+                return RankedDelay
+            end, 5)
+        end
+    end,
+})
+
+-- ============================================================
 --  CODES TAB
 -- ============================================================
 CodesTab:CreateSection("Auto Redeem Codes")
 
 local KnownCodes = {}
+local CodeSourceUrl = ""
+
+local function AddCode(codeList, seen, code)
+    if typeof(code) ~= "string" then
+        return
+    end
+
+    code = code:match("^%s*(.-)%s*$")
+    if code == "" or seen[code] then
+        return
+    end
+
+    seen[code] = true
+    codeList[#codeList + 1] = code
+end
+
+local function ExtractCodesFromText(text, codeList, seen)
+    if typeof(text) ~= "string" then
+        return
+    end
+
+    for code in string.gmatch(text, "[A-Za-z0-9_%-]+") do
+        if #code >= 3 and #code <= 40 then
+            AddCode(codeList, seen, code)
+        end
+    end
+end
+
+local function ExtractCodesFromTable(value, codeList, seen, depth)
+    if typeof(value) ~= "table" or depth > 4 then
+        return
+    end
+
+    for key, child in pairs(value) do
+        local keyText = tostring(key):lower()
+        if typeof(child) == "string" then
+            if keyText:find("code") or keyText:find("redeem") or keyText:find("promo") or keyText:find("name") then
+                AddCode(codeList, seen, child)
+            end
+        elseif typeof(child) == "table" then
+            ExtractCodesFromTable(child, codeList, seen, depth + 1)
+        end
+    end
+end
+
+local function GetCodesFromGameModules(codeList, seen)
+    for _, module in ipairs(ReplicatedStorage:GetDescendants()) do
+        if module:IsA("ModuleScript") then
+            local name = module.Name:lower()
+            if name:find("code") or name:find("redeem") or name:find("promo") then
+                local ok, result = pcall(require, module)
+                if ok then
+                    if typeof(result) == "table" then
+                        ExtractCodesFromTable(result, codeList, seen, 0)
+                    elseif typeof(result) == "string" then
+                        ExtractCodesFromText(result, codeList, seen)
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function GetCodesFromUrl(codeList, seen)
+    if CodeSourceUrl == "" then
+        return
+    end
+
+    local ok, body = pcall(function()
+        return game:HttpGet(CodeSourceUrl)
+    end)
+    if ok and typeof(body) == "string" then
+        ExtractCodesFromText(body, codeList, seen)
+    end
+end
+
+local function BuildCodeList()
+    local codeList = {}
+    local seen = {}
+
+    for _, code in ipairs(KnownCodes) do
+        AddCode(codeList, seen, code)
+    end
+
+    GetCodesFromGameModules(codeList, seen)
+    GetCodesFromUrl(codeList, seen)
+    return codeList
+end
+
+local function RedeemCodeAndNotify(code)
+    local ok, result = SafeInvoke(RedeemCode, code)
+    if ok and typeof(result) == "table" and result.ok == true then
+        Rayfield:Notify({
+            Title   = "Code Redeemed",
+            Content = "Successfully redeemed: " .. code,
+            Duration = 3,
+        })
+        return true
+    end
+
+    local msg = "Failed"
+    if typeof(result) == "table" and result.message then
+        msg = result.message
+    end
+    Rayfield:Notify({
+        Title   = "Code Failed",
+        Content = code .. " - " .. msg,
+        Duration = 3,
+    })
+    return false
+end
+
 CodesTab:CreateInput({
     Name                = "Enter Codes (comma-separated)",
     PlaceholderText     = "code1, code2, code3",
@@ -975,30 +1549,36 @@ CodesTab:CreateInput({
     end,
 })
 
+CodesTab:CreateInput({
+    Name                = "Code List URL",
+    PlaceholderText     = "raw GitHub txt/json/list URL...",
+    RemoveTextAfterFocusLost = false,
+    Callback            = function(v)
+        CodeSourceUrl = tostring(v or ""):match("^%s*(.-)%s*$")
+    end,
+})
+
 CodesTab:CreateButton({
     Name     = "Redeem All Codes",
     Callback = function()
-        for _, code in ipairs(KnownCodes) do
-            local ok, result = pcall(function()
-                return RedeemCode:InvokeServer(code)
-            end)
-            if ok and typeof(result) == "table" and result.ok == true then
-                Rayfield:Notify({
-                    Title   = "Code Redeemed",
-                    Content = "Successfully redeemed: " .. code,
-                    Duration = 3,
-                })
-            else
-                local msg = "Failed"
-                if typeof(result) == "table" and result.message then
-                    msg = result.message
-                end
-                Rayfield:Notify({
-                    Title   = "Code Failed",
-                    Content = code .. " - " .. msg,
-                    Duration = 3,
-                })
-            end
+        local codes = BuildCodeList()
+        if #codes <= 0 then
+            Rayfield:Notify({
+                Title   = "No Codes",
+                Content = "No manual, module, or URL codes found.",
+                Duration = 3,
+            })
+            return
+        end
+
+        Rayfield:Notify({
+            Title   = "Codes",
+            Content = "Trying " .. tostring(#codes) .. " code(s).",
+            Duration = 3,
+        })
+
+        for _, code in ipairs(codes) do
+            RedeemCodeAndNotify(code)
             task.wait(1)
         end
     end,
@@ -1010,26 +1590,7 @@ CodesTab:CreateInput({
     RemoveTextAfterFocusLost = false,
     Callback            = function(v)
         if v == "" then return end
-        local ok, result = pcall(function()
-            return RedeemCode:InvokeServer(v)
-        end)
-        if ok and typeof(result) == "table" and result.ok == true then
-            Rayfield:Notify({
-                Title   = "Code Redeemed",
-                Content = "Successfully redeemed: " .. v,
-                Duration = 3,
-            })
-        else
-            local msg = "Failed"
-            if typeof(result) == "table" and result.message then
-                msg = result.message
-            end
-            Rayfield:Notify({
-                Title   = "Code Failed",
-                Content = v .. " - " .. msg,
-                Duration = 3,
-            })
-        end
+        RedeemCodeAndNotify(v)
     end,
 })
 
@@ -1042,6 +1603,10 @@ MacroTab:CreateLabel("Click -> Upgrades -> Rebirth -> Battle -> Dice")
 local MacroRunning       = false
 local MacroRebirthDelay  = 60
 local MacroLastRebirth   = 0
+local MacroLastUpgrade   = 0
+local MacroLastDice      = 0
+local MacroLastBattle    = 0
+local MacroLastReward    = 0
 local MacroDiceEnabled   = true
 local MacroBattleEnabled = true
 local MacroMapChoice     = "TrainingYard"
@@ -1097,22 +1662,28 @@ MacroTab:CreateToggle({
     Callback     = function(v)
         MacroRunning     = v
         MacroLastRebirth = os.clock()
+        MacroLastUpgrade = 0
+        MacroLastDice    = 0
+        MacroLastBattle  = 0
+        MacroLastReward  = 0
 
         if MacroRunning then
             StartManagedLoop("BrawlMaxMacro", function() return MacroRunning end, function()
                 local now = os.clock()
 
                 -- 1. Buy all upgrades (max)
-                local snapshot = GetUpgradeSnapshot()
-                for _, entry in ipairs(UpgradeList) do
-                    if not MacroRunning then break end
-                    SmartPurchaseUpgrade(entry[1], "max", snapshot)
-                    task.wait(0.05)
+                if now - MacroLastUpgrade >= 0.5 then
+                    MacroLastUpgrade = now
+                    local snapshot = GetUpgradeSnapshot()
+                    for _, entry in ipairs(UpgradeList) do
+                        if not MacroRunning then break end
+                        SmartPurchaseUpgrade(entry[1], "max", snapshot)
+                        task.wait(0.05)
+                    end
                 end
 
                 -- 2. Tap
                 SafeFire(ClickerTap)
-                task.wait(0.05)
 
                 -- 3. Rebirth on timer
                 if now - MacroLastRebirth >= MacroRebirthDelay then
@@ -1122,7 +1693,8 @@ MacroTab:CreateToggle({
                 end
 
                 -- 4. Roll dice
-                if MacroDiceEnabled then
+                if MacroDiceEnabled and now - MacroLastDice >= 0.5 then
+                    MacroLastDice = now
                     if GetDiceCount("regular") > 0 then
                         SmartRollDice("regular")
                         task.wait(0.1)
@@ -1138,14 +1710,18 @@ MacroTab:CreateToggle({
                 end
 
                 -- 5. Battle cycle
-                if MacroBattleEnabled then
-                    RequestAndStartSmartBattle(MacroBattleChoiceMode, MacroMapChoice)
+                if MacroBattleEnabled and now - MacroLastBattle >= 3 then
+                    MacroLastBattle = now
+                    RequestAndStartSmartBattle(MacroBattleChoiceMode, MacroMapChoice, BattleAutoEquipBest)
                 end
 
                 -- 6. Claim rewards
-                pcall(function() ClaimDailyReward:InvokeServer() end)
-                ClaimAllKnownAchievements(0.02)
-                pcall(function() ClaimTrophyRoadRankUpReward:InvokeServer() end)
+                if now - MacroLastReward >= 30 then
+                    MacroLastReward = now
+                    pcall(function() ClaimDailyReward:InvokeServer() end)
+                    ClaimAllKnownAchievements(0.02)
+                    pcall(function() ClaimTrophyRoadRankUpReward:InvokeServer() end)
+                end
 
                 return 0.1
             end, 1)
@@ -1221,10 +1797,13 @@ MiscTab:CreateSection("Quick Actions")
 MiscTab:CreateButton({
     Name     = "Force Collect Battle Result",
     Callback = function()
-        local ok, result = pcall(function()
-            return AcknowledgeBattleResult:InvokeServer({ deferBoxRewards = true })
-        end)
+        local state = RefreshBattleStatus()
+        local ok, result = SafeInvoke(AcknowledgeBattleResult, { deferBoxRewards = true })
         if ok and typeof(result) == "table" and result.ok == true then
+            if typeof(state) == "table" and typeof(state.completedResult) == "table" then
+                SetBattleResult(state.completedResult)
+            end
+            SetBattleStatus("Collected")
             Rayfield:Notify({ Title = "Collected", Content = "Battle rewards collected!", Duration = 2 })
         else
             Rayfield:Notify({ Title = "No Result", Content = "No battle result to collect", Duration = 2 })
